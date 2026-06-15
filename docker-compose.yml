@@ -24,6 +24,8 @@ services:
     container_name: it_dashboard_app
     ports:
       - "80:5000"
+    volumes:
+      - ./app:/app
     environment:
       - DB_HOST=db
       - DB_NAME=it_dashboard
