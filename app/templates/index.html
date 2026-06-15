@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — PV Infrastructure Portal</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+
+<!-- LOADING OVERLAY -->
+<div id="loadingOverlay" class="loading-overlay">
+    <div class="loader"></div>
+    <div class="loading-text">Đang xử lý yêu cầu...</div>
+</div>
+
+<!-- TOAST -->
+<div id="toastContainer" class="toast-container"></div>
+
+<div class="app-layout">
+
+<!-- ══════════════════ SIDEBAR ══════════════════ -->
+<aside class="sidebar" id="sidebar">
+
+    <div class="sidebar-brand">
+        <div class="brand-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                <path d="M2 17l10 5 10-5"/>
+                <path d="M2 12l10 5 10-5"/>
+            </svg>
+        </div>
+        <div class="brand-text">
+            <h1>PV Automation</h1>
+            <p>Infrastructure Portal</p>
+        </div>
+    </div>
+
+    <div class="sidebar-user">
+        <div class="user-avatar">{{ session.get('display_name', session.get('user','U'))[0] | upper }}</div>
+        <div class="user-info-text">
+            <div class="uname">{{ session.get('display_name', session.get('user','')) }}</div>
+            <div class="urole">{% if session.get('is_admin') %}Domain Administrator{% else %}Standard User{% endif %}</div>
+        </div>
+    </div>
+
+    <nav class="sidebar-nav">
+        <div class="nav-section-label">Main</div>
+        <button class="nav-item active" onclick="showSection('section-dashboard', this)">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Dashboard
+        </button>
+
+        {% if session.get('is_admin') %}
+        <div class="nav-section-label">Administration</div>
+        <button class="nav-item" onclick="openPanel('create-user-panel', this)">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+            Tạo User AD
+        </button>
+        <button class="nav-item" onclick="openPanel('license-panel', this)">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+            Quản Lý License
+        </button>
+        <button class="nav-item" onclick="openPanel('assign-license-panel', this)">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+            Cấp License
+        </button>
+        <button class="nav-item" onclick="showSection('section-audit', this)">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            Audit Log
+        </button>
+        {% endif %}
+
+        <div class="nav-section-label">Account</div>
+        <a href="/change-password" class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Đổi Mật Khẩu
+        </a>
+        <a href="/export-licenses-csv" class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export CSV
+        </a>
+        <a href="/logout" class="nav-item nav-danger">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Đăng Xuất
+        </a>
+        <button class="nav-item nav-danger" onclick="confirmDisconnectDomain()">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+            Thoát Domain
+        </button>
+    </nav>
+
+    <div class="sidebar-footer">
+        <div class="version">PV Portal v2.0 — {{ domain_info.ldap_host if domain_info else '' }}</div>
+    </div>
+
+    <!-- Hidden form for domain disconnect -->
+    <form id="disconnectDomainForm" action="/disconnect-domain" method="POST" class="hidden"></form>
+</aside>
+
+<!-- ══════════════════ MAIN ══════════════════ -->
+<main class="main-content">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+        <div class="topbar-left">
+            <div class="breadcrumb">
+                <span>PV Portal</span>
+                <span class="crumb-sep">›</span>
+                <span class="crumb-current" id="breadcrumbCurrent">Dashboard</span>
+            </div>
+        </div>
+        <div class="topbar-right">
+            <button class="topbar-btn" onclick="toggleTheme()" id="themeBtn">🌙 Theme</button>
+            {% if session.get('is_admin') %}
+            <a href="/export-audit-csv" class="topbar-btn" style="text-decoration:none;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Export Audit
+            </a>
+            {% endif %}
+            <a href="/export-licenses-csv" class="topbar-btn" style="text-decoration:none;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export CSV
+            </a>
+        </div>
+    </div>
+
+    <div class="page-content">
+
+    <!-- ════════════════════════════════════
+         SECTION: DASHBOARD
+    ════════════════════════════════════ -->
+    <div id="section-dashboard">
+
+        <div class="page-header">
+            <div>
+                <div class="page-title">Dashboard</div>
+                <div class="page-subtitle">Active Directory · License Management · Infrastructure</div>
+            </div>
+        </div>
+
+        <!-- KPI CARDS -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-card-inner">
+                    <div class="stat-meta">
+                        <div class="stat-label">Tổng User AD</div>
+                        <div class="stat-value">{{ ad_users|length }}</div>
+                    </div>
+                    <div class="stat-icon blue">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    </div>
+                </div>
+                <div class="stat-accent"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-inner">
+                    <div class="stat-meta">
+                        <div class="stat-label">Tổng Group</div>
+                        <div class="stat-value">{{ ad_groups|length }}</div>
+                    </div>
+                    <div class="stat-icon teal">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                    </div>
+                </div>
+                <div class="stat-accent" style="background:linear-gradient(90deg,var(--azure-teal),var(--azure-blue-light,#50e6ff));"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-inner">
+                    <div class="stat-meta">
+                        <div class="stat-label">License Trong Kho</div>
+                        <div class="stat-value">{{ software_list|length }}</div>
+                    </div>
+                    <div class="stat-icon green">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                    </div>
+                </div>
+                <div class="stat-accent" style="background:linear-gradient(90deg,var(--success),#4ade80);"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-inner">
+                    <div class="stat-meta">
+                        <div class="stat-label">License Đã Cấp</div>
+                        <div class="stat-value">{{ assigned_list|length }}</div>
+                    </div>
+                    <div class="stat-icon amber">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                    </div>
+                </div>
+                <div class="stat-accent" style="background:linear-gradient(90deg,var(--warning),#fbbf24);"></div>
+            </div>
+        </div>
+
+        <!-- ADMIN ACTION PANELS -->
+        {% if session.get('is_admin') %}
+
+        <!-- CREATE USER PANEL -->
+        <div id="create-user-panel" class="content-card action-panel hidden">
+            <div class="card-header">
+                <div class="card-title-block">
+                    <div class="card-title">Tạo User Active Directory</div>
+                    <div class="card-subtitle">Tạo tài khoản mới và gán Group ngay khi khởi tạo</div>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="closeAllPanels()">✕ Đóng</button>
+            </div>
+            <div class="card-body">
+                <form action="/create-user" method="POST" onsubmit="showLoading()">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>SamAccountName</label>
+                            <input type="text" name="sam_account_name" placeholder="vd: longnh" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Họ và Tên</label>
+                            <input type="text" name="full_name" placeholder="Nguyễn Văn Long" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Mật Khẩu Khởi Tạo</label>
+                            <input type="text" name="password" placeholder="Để trống → dùng mặc định">
+                        </div>
+                        <div class="form-group">
+                            <label>OU DN</label>
+                            <input type="text" name="ou_dn" value="OU=Users,DC=pv,DC=local" required>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top:12px;">
+                        <label>Gán Group (Ctrl+Click chọn nhiều)</label>
+                        <select name="group_ids[]" multiple>
+                            {% for g in ad_groups %}
+                            <option value="{{ g.Name }}">{{ g.Name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" type="submit">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Tạo User
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- LICENSE INVENTORY PANEL -->
+        <div id="license-panel" class="content-card action-panel hidden">
+            <div class="card-header">
+                <div class="card-title-block">
+                    <div class="card-title" id="license-form-title">Nhập Kho License</div>
+                    <div class="card-subtitle">Thêm hoặc chỉnh sửa license inventory</div>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="closeAllPanels()">✕ Đóng</button>
+            </div>
+            <div class="card-body">
+                <form action="/save-software-inventory" method="POST" onsubmit="showLoading()">
+                    <input type="hidden" id="form_row_id" name="row_id">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Mã License Key</label>
+                            <input type="text" id="form_software_key" name="software_key" placeholder="vd: OFFICE-365-ENT" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Tên Phần Mềm</label>
+                            <input type="text" id="form_software_name" name="software_name" placeholder="vd: Microsoft Office 365" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Tổng Số License</label>
+                            <input type="number" id="form_total_licenses" name="total_licenses" min="1" placeholder="50" required>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button id="submit-inventory-btn" type="submit" class="btn btn-primary">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+                            Lưu License
+                        </button>
+                        <button type="button" id="cancel-edit-btn" class="btn btn-secondary hidden" onclick="resetLicenseForm()">
+                            Hủy Edit
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ASSIGN LICENSE PANEL -->
+        <div id="assign-license-panel" class="content-card action-panel hidden">
+            <div class="card-header">
+                <div class="card-title-block">
+                    <div class="card-title">Cấp License Cho User</div>
+                    <div class="card-subtitle">Gán license từ kho trực tiếp cho người dùng</div>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="closeAllPanels()">✕ Đóng</button>
+            </div>
+            <div class="card-body">
+                <form action="/assign-software-direct" method="POST" onsubmit="showLoading()">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>User AD</label>
+                            <select name="sam_account_name" required>
+                                {% for user in ad_users %}
+                                <option value="{{ user.SamAccountName }}">{{ user.SamAccountName }} — {{ user.Name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>License</label>
+                            <select name="software_key" required>
+                                {% for s in software_list %}
+                                <option value="{{ s[1] }}">{{ s[2] }} — Còn: {{ s[5] }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Số Lượng</label>
+                            <input type="number" name="quantity" min="1" value="1" required>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                            Cấp License
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- AD USERS TABLE -->
+        <div class="content-card">
+            <div class="card-header">
+                <div class="card-title-block">
+                    <div class="card-title">Active Directory Users</div>
+                    <div class="card-subtitle">Danh sách toàn bộ user trong Domain</div>
+                </div>
+                <div class="card-actions">
+                    <input type="text" id="userSearchInput" class="search-box" placeholder="Tìm user..." onkeyup="filterUserTable()">
+                    {% if session.get('is_admin') %}
+                    <button class="btn btn-primary btn-sm" onclick="openPanel('create-user-panel', null)">+ Tạo User</button>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="table-container scroll-area">
+                <table class="modern-table" id="userTable">
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Họ Tên</th>
+                            <th>Trạng Thái</th>
+                            <th>Groups</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in ad_users %}
+                        <tr>
+                            <td><code>{{ u.SamAccountName }}</code></td>
+                            <td><strong>{{ u.Name }}</strong></td>
+                            <td>
+                                {% if u.Enabled %}
+                                <span class="badge badge-success">Active</span>
+                                {% else %}
+                                <span class="badge badge-danger">Disabled</span>
+                                {% endif %}
+                            </td>
+                            <td style="max-width:280px; color:var(--text-soft); font-size:12px;">
+                                {% if u.Groups %}{{ u.Groups[:80] }}{% if u.Groups|length > 80 %}…{% endif %}
+                                {% else %}<span class="badge badge-secondary">No Groups</span>{% endif %}
+                            </td>
+                            <td>
+                                <div class="table-actions">
+                                    {% if session.get('is_admin') %}
+                                    <button class="btn btn-ghost btn-sm"
+                                            onclick="openUserEditModal('{{ u.SamAccountName }}','{{ u.Name }}',{{ 'true' if u.Enabled else 'false' }},`{{ u.Groups }}`)">
+                                        ✏ Edit
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SOFTWARE LICENSE INVENTORY -->
+        <div class="content-card">
+            <div class="card-header">
+                <div class="card-title-block">
+                    <div class="card-title">Software License Inventory</div>
+                    <div class="card-subtitle">Quản lý kho license phần mềm trong hệ thống</div>
+                </div>
+                <div class="card-actions">
+                    {% if session.get('is_admin') %}
+                    <button class="btn btn-primary btn-sm" onclick="openPanel('license-panel', null)">+ Thêm License</button>
+                    <button class="btn btn-secondary btn-sm" onclick="openPanel('assign-license-panel', null)">🔑 Cấp License</button>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="table-container">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>License Key</th>
+                            <th>Phần Mềm</th>
+                            <th>Tổng</th>
+                            <th>Đã Dùng</th>
+                            <th>Còn Lại</th>
+                            {% if session.get('is_admin') %}<th>Actions</th>{% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for s in software_list %}
+                        <tr>
+                            <td style="color:var(--text-muted);">{{ s[0] }}</td>
+                            <td><code>{{ s[1] }}</code></td>
+                            <td><strong>{{ s[2] }}</strong></td>
+                            <td>{{ s[3] }}</td>
+                            <td><span class="badge badge-warning">{{ s[4] }}</span></td>
+                            <td><span class="badge badge-success">{{ s[5] }}</span></td>
+                            {% if session.get('is_admin') %}
+                            <td>
+                                <div class="table-actions">
+                                    <button class="btn btn-ghost btn-sm"
+                                            onclick="quickEditLicense('{{ s[0] }}','{{ s[1] }}','{{ s[2] }}','{{ s[3] }}')">
+                                        ✏ Edit
+                                    </button>
+                                    <button class="btn btn-danger btn-sm"
+                                            onclick="deleteLicenseWithAuth('{{ s[0] }}')">
+                                        🗑 Xóa
+                                    </button>
+                                </div>
+                            </td>
+                            {% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- LICENSE ASSIGNMENT HISTORY -->
+        <div class="content-card">
+            <div class="card-header">
+                <div class="card-title-block">
+                    <div class="card-title">License Assignment History</div>
+                    <div class="card-subtitle">Danh sách license đã cấp — có thể thu hồi từng dòng</div>
+                </div>
+                <a href="/export-licenses-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Export CSV
+                </a>
+            </div>
+            <div class="table-container scroll-area">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>License Key</th>
+                            <th>Số Lượng</th>
+                            <th>Thời Gian Cấp</th>
+                            {% if session.get('is_admin') %}<th>Thu Hồi</th>{% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for a in assigned_list %}
+                        <tr>
+                            <td><strong>{{ a[1] }}</strong></td>
+                            <td><code>{{ a[2] }}</code></td>
+                            <td><span class="badge badge-info">{{ a[3] }}</span></td>
+                            <td style="color:var(--text-soft); font-size:12px;">{{ a[4] }}</td>
+                            {% if session.get('is_admin') %}
+                            <td>
+                                <button class="btn btn-warning btn-sm"
+                                        onclick="openRevokeModal('{{ a[1] }}', '{{ a[2] }}', {{ a[3] }})">
+                                    ↩ Thu Hồi
+                                </button>
+                            </td>
+                            {% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div><!-- /section-dashboard -->
+
+    <!-- ════════════════════════════════════
+         SECTION: AUDIT LOG
+    ════════════════════════════════════ -->
+    {% if session.get('is_admin') %}
+    <div id="section-audit" class="hidden">
+
+        <div class="page-header">
+            <div>
+                <div class="page-title">Audit Log</div>
+                <div class="page-subtitle">Lịch sử toàn bộ thao tác của Admin — 200 bản ghi gần nhất</div>
+            </div>
+            <div class="page-actions">
+                <a href="/export-audit-csv" class="btn btn-primary btn-sm" style="text-decoration:none;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Export CSV
+                </a>
+            </div>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="content-card" style="padding:12px 16px;">
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                <input type="text" id="auditSearchInput" class="search-box" placeholder="Tìm theo actor, action, target..." onkeyup="filterAuditTable()" style="width:280px;">
+                <select id="auditActionFilter" onchange="filterAuditTable()" style="height:30px; padding:4px 10px; border:1px solid var(--border-strong); border-radius:var(--r-sm); font-size:13px; background:var(--card); color:var(--text);">
+                    <option value="">— Tất cả hành động —</option>
+                    <option>LOGIN</option>
+                    <option>LOGOUT</option>
+                    <option>CREATE_USER</option>
+                    <option>EDIT_USER</option>
+                    <option>ADD_LICENSE</option>
+                    <option>EDIT_LICENSE</option>
+                    <option>DELETE_LICENSE</option>
+                    <option>ASSIGN_LICENSE</option>
+                    <option>REVOKE_LICENSE</option>
+                    <option>REMOVE_FROM_GROUP</option>
+                    <option>CHANGE_PASSWORD</option>
+                    <option>EXPORT_CSV</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="content-card">
+            <div class="table-container scroll-area" style="max-height:600px;">
+                <table class="modern-table" id="auditTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Thời Gian</th>
+                            <th>Người Thực Hiện</th>
+                            <th>Hành Động</th>
+                            <th>Đối Tượng</th>
+                            <th>Chi Tiết</th>
+                            <th>IP</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in audit_rows %}
+                        <tr>
+                            <td style="color:var(--text-muted); font-size:11px;">{{ r[0] }}</td>
+                            <td style="font-size:12px; color:var(--text-soft); white-space:nowrap;">{{ r[1].strftime('%d/%m/%Y %H:%M:%S') if r[1] else '' }}</td>
+                            <td><code>{{ r[2] }}</code></td>
+                            <td>
+                                {% set action_color = {
+                                    'LOGIN': 'info', 'LOGOUT': 'secondary',
+                                    'CREATE_USER': 'success', 'EDIT_USER': 'warning',
+                                    'ADD_LICENSE': 'success', 'EDIT_LICENSE': 'warning',
+                                    'DELETE_LICENSE': 'danger', 'ASSIGN_LICENSE': 'info',
+                                    'REVOKE_LICENSE': 'warning', 'REMOVE_FROM_GROUP': 'warning',
+                                    'CHANGE_PASSWORD': 'info', 'EXPORT_CSV': 'secondary'
+                                } %}
+                                <span class="badge badge-{{ action_color.get(r[3], 'secondary') }}">{{ r[3] }}</span>
+                            </td>
+                            <td style="font-size:12px;">{{ r[4] or '—' }}</td>
+                            <td style="font-size:12px; color:var(--text-soft); max-width:300px; word-break:break-word;">{{ r[5] or '' }}</td>
+                            <td style="font-size:11px; color:var(--text-muted);">{{ r[6] or '' }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% if not audit_rows %}
+                        <tr><td colspan="7" style="text-align:center; padding:40px; color:var(--text-muted);">Chưa có log nào</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div><!-- /section-audit -->
+    {% endif %}
+
+    </div><!-- /page-content -->
+</main>
+</div>
+
+<!-- ══════════════════ MODAL: Delete License (Admin Password) ══════════════════ -->
+<div id="passwordModal" class="modal">
+    <div class="modal-content" style="max-width:420px;">
+        <div class="modal-header">
+            <div class="modal-title" style="color:var(--danger);">⚠ Xác nhận xóa License</div>
+            <button class="close-btn" onclick="closePasswordModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <p style="margin-bottom:12px; font-size:13px; color:var(--text-soft);">
+                Thao tác này sẽ xóa vĩnh viễn license khỏi kho. Nhập mật khẩu Administrator để tiếp tục:
+            </p>
+            <input type="password" id="admin_pass_input" class="search-box"
+                   placeholder="Mật khẩu Administrator" style="width:100%; padding-left:14px; height:36px;"
+                   onkeydown="if(event.key==='Enter') submitDelete()">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closePasswordModal()">Hủy</button>
+            <button class="btn btn-danger" onclick="submitDelete()">🗑 Xác nhận xóa</button>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════ MODAL: Revoke License ══════════════════ -->
+<div id="revokeModal" class="modal">
+    <div class="modal-content" style="max-width:440px;">
+        <div class="modal-header">
+            <div class="modal-title">↩ Thu Hồi License</div>
+            <button class="close-btn" onclick="closeRevokeModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+                <div>
+                    <div style="font-size:11px; font-weight:600; color:var(--text-soft); text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px;">User</div>
+                    <div id="revoke_user_display" style="font-weight:600; font-size:14px;"></div>
+                </div>
+                <div>
+                    <div style="font-size:11px; font-weight:600; color:var(--text-soft); text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px;">License Key</div>
+                    <div id="revoke_key_display" style="font-family:monospace; font-size:13px; color:var(--azure);"></div>
+                </div>
+            </div>
+            <div style="background:var(--bg-secondary); border-radius:var(--r-md); padding:12px 14px; margin-bottom:16px; font-size:13px; color:var(--text-soft);">
+                Hiện tại user đang có <strong id="revoke_current_qty" style="color:var(--text);"></strong> license.
+            </div>
+            <div class="form-group">
+                <label>Số lượng cần thu hồi</label>
+                <input type="number" id="revoke_qty_input" min="1" value="1"
+                       placeholder="Nhập số lượng..."
+                       style="height:36px;"
+                       onkeydown="if(event.key==='Enter') submitRevoke()">
+                <div id="revoke_qty_hint" style="font-size:11px; color:var(--text-muted); margin-top:4px;"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeRevokeModal()">Hủy</button>
+            <button class="btn btn-warning" onclick="submitRevoke()">↩ Xác nhận thu hồi</button>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════ MODAL: Edit User AD ══════════════════ -->
+<div id="userEditModal" class="modal">
+    <div class="modal-content" style="max-width:680px;">
+        <div class="modal-header">
+            <div class="modal-title">✏ Chỉnh sửa User AD</div>
+            <button class="close-btn" onclick="closeUserModal()">✕</button>
+        </div>
+        <div class="modal-body" id="userEditModalBody">
+            <!-- Injected by JS -->
+        </div>
+        <div class="modal-footer" id="userEditModalFooter">
+            <!-- Injected by JS -->
+        </div>
+    </div>
+</div>
+
+<script>
+// ─────────────────────── THEME ───────────────────────
+function toggleTheme() {
+    const html = document.documentElement;
+    const dark = html.getAttribute('data-theme') === 'dark';
+    const btn  = document.getElementById('themeBtn');
+    if (dark) {
+        html.removeAttribute('data-theme');
+        localStorage.setItem('pv_theme','light');
+        btn.textContent = '🌙 Theme';
+    } else {
+        html.setAttribute('data-theme','dark');
+        localStorage.setItem('pv_theme','dark');
+        btn.textContent = '☀️ Theme';
+    }
+}
+
+// ─────────────────────── TOAST ───────────────────────
+function showToast(msg, type='info') {
+    const c = document.getElementById('toastContainer');
+    if (!c) return;
+    const t = document.createElement('div');
+    t.className = `toast toast-${type}`;
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(() => { t.style.opacity='0'; setTimeout(()=>t.remove(), 300); }, 3500);
+}
+
+// ─────────────────────── LOADING ───────────────────────
+function showLoading() { document.getElementById('loadingOverlay').classList.add('show'); }
+function hideLoading()  { document.getElementById('loadingOverlay').classList.remove('show'); }
+
+// ─────────────────────── SECTION SWITCH ───────────────────────
+function showSection(id, navBtn) {
+    document.querySelectorAll('#section-dashboard, #section-audit').forEach(s => s.classList.add('hidden'));
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('hidden');
+
+    document.querySelectorAll('.sidebar-nav .nav-item').forEach(b => b.classList.remove('active'));
+    if (navBtn) navBtn.classList.add('active');
+
+    const labels = { 'section-dashboard': 'Dashboard', 'section-audit': 'Audit Log' };
+    document.getElementById('breadcrumbCurrent').textContent = labels[id] || id;
+
+    closeAllPanels();
+}
+
+// ─────────────────────── PANELS ───────────────────────
+function openPanel(id, navBtn) {
+    if (navBtn) {
+        document.querySelectorAll('.sidebar-nav .nav-item').forEach(b => {
+            if (b.getAttribute('onclick') && b.getAttribute('onclick').includes('openPanel'))
+                b.classList.remove('active');
+        });
+        navBtn.classList.add('active');
+    }
+    closeAllPanels();
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('hidden');
+    setTimeout(() => el.scrollIntoView({ behavior:'smooth', block:'start' }), 80);
+}
+
+function closeAllPanels() {
+    ['create-user-panel','license-panel','assign-license-panel'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+    });
+}
+
+// ─────────────────────── LICENSE FORM ───────────────────────
+function quickEditLicense(id, key, name, total) {
+    document.getElementById('form_row_id').value         = id;
+    document.getElementById('form_software_key').value   = key;
+    document.getElementById('form_software_name').value  = name;
+    document.getElementById('form_total_licenses').value = total;
+    document.getElementById('license-form-title').textContent = '✏ Chỉnh Sửa License';
+    document.getElementById('submit-inventory-btn').textContent = '💾 Cập Nhật';
+    document.getElementById('cancel-edit-btn').classList.remove('hidden');
+    openPanel('license-panel', null);
+}
+
+function resetLicenseForm() {
+    ['form_row_id','form_software_key','form_software_name','form_total_licenses'].forEach(id => {
+        document.getElementById(id).value = '';
+    });
+    document.getElementById('license-form-title').textContent = 'Nhập Kho License';
+    document.getElementById('submit-inventory-btn').textContent = '💾 Lưu License';
+    document.getElementById('cancel-edit-btn').classList.add('hidden');
+}
+
+// ─────────────────────── USER SEARCH ───────────────────────
+function filterUserTable() {
+    const f    = document.getElementById('userSearchInput').value.toUpperCase();
+    const rows = document.getElementById('userTable').getElementsByTagName('tr');
+    for (let i = 1; i < rows.length; i++) {
+        const text = Array.from(rows[i].getElementsByTagName('td')).map(c=>c.textContent).join(' ').toUpperCase();
+        rows[i].style.display = text.includes(f) ? '' : 'none';
+    }
+}
+
+// ─────────────────────── AUDIT FILTER ───────────────────────
+function filterAuditTable() {
+    const f      = document.getElementById('auditSearchInput').value.toUpperCase();
+    const action = document.getElementById('auditActionFilter').value.toUpperCase();
+    const rows   = document.getElementById('auditTable').getElementsByTagName('tr');
+    for (let i = 1; i < rows.length; i++) {
+        const cells = rows[i].getElementsByTagName('td');
+        const text  = Array.from(cells).map(c=>c.textContent).join(' ').toUpperCase();
+        const actionCell = cells[3] ? cells[3].textContent.trim().toUpperCase() : '';
+        const textOk   = !f      || text.includes(f);
+        const actionOk = !action || actionCell === action;
+        rows[i].style.display = (textOk && actionOk) ? '' : 'none';
+    }
+}
+
+// ─────────────────────── DELETE LICENSE ───────────────────────
+let _deleteId = null;
+function deleteLicenseWithAuth(id) {
+    _deleteId = id;
+    const m = document.getElementById('passwordModal');
+    m.classList.add('show');
+    document.getElementById('admin_pass_input').value = '';
+    setTimeout(()=>document.getElementById('admin_pass_input').focus(), 100);
+}
+function closePasswordModal() {
+    document.getElementById('passwordModal').classList.remove('show');
+    _deleteId = null;
+}
+function submitDelete() {
+    const pass = document.getElementById('admin_pass_input').value;
+    if (!pass) return;
+    showLoading();
+    fetch(`/delete-software/${_deleteId}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({admin_pass: pass})
+    })
+    .then(r=>r.json())
+    .then(data => {
+        hideLoading();
+        if (data.status === 'success') {
+            closePasswordModal();
+            showToast('Đã xóa license thành công', 'success');
+            setTimeout(()=>location.reload(), 1000);
+        } else {
+            showToast(data.message || 'Lỗi xóa license', 'danger');
+            closePasswordModal();
+        }
+    })
+    .catch(()=>{ hideLoading(); showToast('Lỗi kết nối', 'danger'); });
+}
+
+// ─────────────────────── REVOKE LICENSE ───────────────────────
+let _revokeUser = null, _revokeKey = null, _revokeMax = 0;
+
+function openRevokeModal(username, licenseKey, currentQty) {
+    _revokeUser = username;
+    _revokeKey  = licenseKey;
+    _revokeMax  = currentQty;
+
+    document.getElementById('revoke_user_display').textContent    = username;
+    document.getElementById('revoke_key_display').textContent     = licenseKey;
+    document.getElementById('revoke_current_qty').textContent     = currentQty;
+    document.getElementById('revoke_qty_input').value             = 1;
+    document.getElementById('revoke_qty_input').max               = currentQty;
+    document.getElementById('revoke_qty_hint').textContent        = `Tối đa có thể thu hồi: ${currentQty}`;
+
+    document.getElementById('revokeModal').classList.add('show');
+    setTimeout(()=>document.getElementById('revoke_qty_input').focus(), 100);
+}
+
+function closeRevokeModal() {
+    document.getElementById('revokeModal').classList.remove('show');
+    _revokeUser = _revokeKey = null; _revokeMax = 0;
+}
+
+function submitRevoke() {
+    const qty = parseInt(document.getElementById('revoke_qty_input').value);
+    if (!qty || qty <= 0) { showToast('Số lượng không hợp lệ', 'danger'); return; }
+    if (qty > _revokeMax) { showToast(`Tối đa có thể thu hồi ${_revokeMax}`, 'danger'); return; }
+
+    showLoading();
+    fetch('/api/revoke-license-direct', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ username: _revokeUser, key: _revokeKey, quantity: qty })
+    })
+    .then(r=>r.json())
+    .then(data => {
+        hideLoading();
+        closeRevokeModal();
+        if (data.status === 'success') {
+            showToast(`Thu hồi ${qty} license "${_revokeKey}" của ${_revokeUser} thành công`, 'success');
+            setTimeout(()=>location.reload(), 1200);
+        } else {
+            showToast(data.message || 'Thu hồi thất bại', 'danger');
+        }
+    })
+    .catch(()=>{ hideLoading(); showToast('Lỗi kết nối', 'danger'); });
+}
+
+// ─────────────────────── USER EDIT MODAL ───────────────────────
+function openUserEditModal(sam, name, enabled, groupsStr) {
+    const groupList = groupsStr.split(',').map(g=>g.trim()).filter(Boolean);
+    document.getElementById('userEditModalBody').innerHTML = `
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" value="${sam}" disabled style="font-weight:600;">
+            </div>
+            <div class="form-group">
+                <label>Display Name</label>
+                <input type="text" id="edit_name" value="${name}">
+            </div>
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+            <label>Trạng thái</label>
+            <select id="edit_enabled" style="height:32px; padding:4px 10px; border:1px solid var(--border-strong); border-radius:var(--r-sm); background:var(--card); color:var(--text);">
+                <option value="true"  ${enabled==='true'||enabled===true?'selected':''}>✅ Active</option>
+                <option value="false" ${enabled==='false'||enabled===false?'selected':''}>❌ Disabled</option>
+            </select>
+        </div>
+        ${groupList.length ? `
+        <div class="form-group" style="margin-top:12px;">
+            <label>Groups hiện tại</label>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; padding:8px 0;">
+                ${groupList.map(g=>`<span class="badge badge-info" style="cursor:pointer;" title="Click để xóa khỏi group" onclick="removeFromGroup('${sam}','${g}',this)">${g} ✕</span>`).join('')}
+            </div>
+        </div>` : ''}
+        <div style="height:1px; background:var(--border-light); margin:16px 0;"></div>
+        <div style="font-size:12px; color:var(--text-muted);">
+            Các thay đổi sẽ được ghi vào Audit Log.
+        </div>
+    `;
+    document.getElementById('userEditModalFooter').innerHTML = `
+        <button class="btn btn-secondary" onclick="closeUserModal()">Hủy</button>
+        <button class="btn btn-primary" onclick="submitUserEdit('${sam}')">💾 Lưu thay đổi</button>
+    `;
+    document.getElementById('userEditModal').classList.add('show');
+}
+
+function closeUserModal() { document.getElementById('userEditModal').classList.remove('show'); }
+
+function removeFromGroup(username, group, el) {
+    if (!confirm(`Xóa ${username} khỏi group "${group}"?`)) return;
+    fetch('/api/remove-user-group', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({username, group})
+    })
+    .then(r=>r.json())
+    .then(data => {
+        if (data.status==='success') { el.remove(); showToast(`Đã xóa khỏi group ${group}`, 'success'); }
+        else showToast(data.message || 'Lỗi', 'danger');
+    });
+}
+
+function submitUserEdit(sam) {
+    showLoading();
+    const form   = document.createElement('form');
+    form.method  = 'POST';
+    form.action  = '/edit-user-ad';
+    const fields = {
+        edit_username: sam,
+        edit_status: document.getElementById('edit_enabled').value,
+    };
+    Object.entries(fields).forEach(([k,v]) => {
+        const i = document.createElement('input');
+        i.type='hidden'; i.name=k; i.value=v; form.appendChild(i);
+    });
+    document.body.appendChild(form);
+    form.submit();
+}
+
+// ─────────────────────── DISCONNECT DOMAIN ───────────────────────
+function confirmDisconnectDomain() {
+    if (confirm('Bạn chắc chắn muốn thoát khỏi domain hiện tại?\nToàn bộ session sẽ bị đăng xuất và cần kết nối lại domain để tiếp tục sử dụng.')) {
+        showLoading();
+        document.getElementById('disconnectDomainForm').submit();
+    }
+}
+
+// ─────────────────────── INIT ───────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    hideLoading();
+    const t = localStorage.getItem('pv_theme');
+    const btn = document.getElementById('themeBtn');
+    if (t === 'dark') {
+        document.documentElement.setAttribute('data-theme','dark');
+        if (btn) btn.textContent = '☀️ Theme';
+    }
+
+    // Modal close on backdrop click
+    ['passwordModal','revokeModal','userEditModal'].forEach(id => {
+        const m = document.getElementById(id);
+        if (m) m.addEventListener('click', e => { if (e.target===m) m.classList.remove('show'); });
+    });
+});
+</script>
+
+</body>
+</html>

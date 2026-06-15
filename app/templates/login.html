@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in — PV Infrastructure Portal</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+    --azure:      #0078d4;
+    --azure-dark: #005a9e;
+    --azure-glow: rgba(0,120,212,.25);
+    --bg:         #f3f4f6;
+    --card:       #ffffff;
+    --text:       #1a1a2e;
+    --text-soft:  #5c6478;
+    --border:     #dde1ea;
+    --danger:     #a4262c;
+    --danger-bg:  #fde7e9;
+    --success-bg: #dff6dd;
+    --success:    #107c10;
+}
+
+[data-theme="dark"] {
+    --bg:       #0d1117;
+    --card:     #1c2333;
+    --text:     #e6edf3;
+    --text-soft:#8b949e;
+    --border:   #30363d;
+    --danger-bg:rgba(248,81,73,.12);
+    --danger:   #f85149;
+    --success-bg:rgba(63,185,80,.1);
+    --success:  #3fb950;
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+    font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .25s, color .25s;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Background decoration */
+body::before {
+    content: '';
+    position: fixed;
+    top: -200px; left: -200px;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(0,120,212,.12) 0%, transparent 70%);
+    pointer-events: none;
+}
+body::after {
+    content: '';
+    position: fixed;
+    bottom: -150px; right: -150px;
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, rgba(0,183,195,.1) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.login-shell {
+    display: grid;
+    grid-template-columns: 1fr 420px;
+    width: min(960px, 96vw);
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,.15);
+    position: relative;
+    z-index: 1;
+}
+
+/* ---- LEFT PANEL ---- */
+.left-panel {
+    background: linear-gradient(160deg, #0b3c5d 0%, #0078d4 55%, #00b7c3 100%);
+    padding: 52px 48px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+    min-height: 520px;
+}
+
+/* Geometric decorations */
+.left-panel::before {
+    content: '';
+    position: absolute;
+    width: 360px; height: 360px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.1);
+    bottom: -100px; right: -100px;
+}
+.left-panel::after {
+    content: '';
+    position: absolute;
+    width: 200px; height: 200px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.08);
+    top: 30px; right: 40px;
+}
+
+.lp-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: relative;
+    z-index: 1;
+}
+
+.lp-brand-icon {
+    width: 40px; height: 40px;
+    background: rgba(255,255,255,.2);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    backdrop-filter: blur(4px);
+}
+
+.lp-brand-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: rgba(255,255,255,.9);
+    letter-spacing: .02em;
+}
+
+.lp-main {
+    position: relative;
+    z-index: 1;
+}
+
+.lp-main h1 {
+    font-size: 34px;
+    font-weight: 800;
+    color: #ffffff;
+    line-height: 1.2;
+    letter-spacing: -.02em;
+    margin-bottom: 14px;
+}
+
+.lp-main p {
+    font-size: 14px;
+    color: rgba(255,255,255,.75);
+    line-height: 1.75;
+    margin-bottom: 28px;
+}
+
+.feature-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.feature-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: rgba(255,255,255,.85);
+}
+
+.feature-dot {
+    width: 20px; height: 20px;
+    background: rgba(255,255,255,.2);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    flex-shrink: 0;
+}
+
+.lp-footer {
+    font-size: 11px;
+    color: rgba(255,255,255,.4);
+    position: relative;
+    z-index: 1;
+}
+
+/* ---- RIGHT PANEL ---- */
+.right-panel {
+    background: var(--card);
+    padding: 40px 44px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.rp-topbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.theme-toggle {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .2s;
+}
+.theme-toggle:hover { background: var(--bg); border-color: var(--azure); color: var(--azure); }
+
+.rp-title {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--text);
+    letter-spacing: -.02em;
+    margin-bottom: 4px;
+}
+.rp-subtitle {
+    font-size: 13px;
+    color: var(--text-soft);
+    margin-bottom: 28px;
+}
+
+.alert {
+    padding: 11px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.alert::before { font-size: 14px; }
+.alert-danger  { background: var(--danger-bg);  color: var(--danger); }
+.alert-danger::before { content: '⚠'; }
+.alert-success { background: var(--success-bg); color: var(--success); }
+.alert-success::before { content: '✓'; }
+
+.form-group { margin-bottom: 16px; }
+.form-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-soft);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin-bottom: 6px;
+}
+.form-group input {
+    width: 100%;
+    padding: 11px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: all .2s;
+}
+.form-group input:focus {
+    border-color: var(--azure);
+    background: var(--card);
+    box-shadow: 0 0 0 3px var(--azure-glow);
+}
+
+.btn-login {
+    width: 100%;
+    padding: 12px;
+    background: var(--azure);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    margin-top: 6px;
+    transition: all .2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+.btn-login:hover { background: var(--azure-dark); transform: translateY(-1px); box-shadow: 0 4px 14px var(--azure-glow); }
+.btn-login:active { transform: translateY(0); }
+
+.rp-footer {
+    margin-top: 24px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-soft);
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+@media (max-width: 760px) {
+    .login-shell { grid-template-columns: 1fr; width: 95vw; }
+    .left-panel { display: none; }
+    .right-panel { padding: 36px 28px; }
+}
+</style>
+</head>
+
+<body>
+
+<div class="login-shell">
+
+    <!-- LEFT -->
+    <div class="left-panel">
+        <div class="lp-brand">
+            <div class="lp-brand-icon">⚡</div>
+            <span class="lp-brand-name">{{ domain_suffix.upper().lstrip('@') }} DOMAIN</span>
+        </div>
+
+        <div class="lp-main">
+            <h1>Infrastructure<br>Automation<br>Portal</h1>
+            <p>Nền tảng quản trị hạ tầng CNTT tập trung cho hệ thống Active Directory và License.</p>
+            <div class="feature-list">
+                <div class="feature-item">
+                    <div class="feature-dot">✓</div>
+                    Active Directory Management
+                </div>
+                <div class="feature-item">
+                    <div class="feature-dot">✓</div>
+                    License Inventory Tracking
+                </div>
+                <div class="feature-item">
+                    <div class="feature-dot">✓</div>
+                    User Provisioning Automation
+                </div>
+                <div class="feature-item">
+                    <div class="feature-dot">✓</div>
+                    Role-Based Access Control
+                </div>
+                <div class="feature-item">
+                    <div class="feature-dot">✓</div>
+                    Audit &amp; Asset Visibility
+                </div>
+            </div>
+        </div>
+
+        <div class="lp-footer">AIT Infrastructure Automation Platform v2.0</div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="right-panel">
+        <div class="rp-topbar">
+            <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn" title="Toggle theme">🌙</button>
+        </div>
+
+        <div class="rp-title">Đăng nhập</div>
+        <div class="rp-subtitle">Sử dụng tài khoản Active Directory của bạn — {{ domain_host }}</div>
+
+        {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST" action="/login">
+            <div class="form-group">
+                <label>Tài khoản AD</label>
+                <input type="text" name="username" placeholder="Ví dụ: longnh" autocomplete="username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label>Mật khẩu</label>
+                <input type="password" name="password" placeholder="Nhập mật khẩu" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="btn-login">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                Đăng Nhập
+            </button>
+        </form>
+
+        <div class="rp-footer">
+            AIT Infrastructure Automation Platform &copy; 2026 by NguyenLong<br>
+            <a href="/connect-domain" style="color:var(--azure); text-decoration:none; font-weight:600;">⚙ Đổi / Thoát Domain</a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+function toggleTheme() {
+    const html = document.documentElement;
+    const btn  = document.getElementById('themeBtn');
+    const dark = html.getAttribute('data-theme') === 'dark';
+    if (dark) {
+        html.removeAttribute('data-theme');
+        localStorage.setItem('pv_theme', 'light');
+        btn.textContent = '🌙';
+    } else {
+        html.setAttribute('data-theme', 'dark');
+        localStorage.setItem('pv_theme', 'dark');
+        btn.textContent = '☀️';
+    }
+}
+window.onload = function() {
+    const t = localStorage.getItem('pv_theme');
+    const btn = document.getElementById('themeBtn');
+    if (t === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        btn.textContent = '☀️';
+    }
+};
+</script>
+
+</body>
+</html>

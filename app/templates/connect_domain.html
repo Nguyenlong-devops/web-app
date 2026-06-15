@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kết Nối Domain — PV Infrastructure Portal</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;500;600;700&display=swap');
+
+:root {
+    --azure:      #0078d4;
+    --azure-dark: #005a9e;
+    --azure-glow: rgba(0,120,212,.18);
+    --bg:         #f5f5f5;
+    --card:       #ffffff;
+    --text:       #201f1e;
+    --text-soft:  #605e5c;
+    --border:     #e1dfdd;
+    --border-strong: #c8c6c4;
+    --danger:     #a4262c;
+    --danger-bg:  #fde7e9;
+    --success-bg: #dff6dd;
+    --success:    #107c10;
+    --info-bg:    #cce4f7;
+    --info:       #0078d4;
+}
+
+[data-theme="dark"] {
+    --bg:       #141414;
+    --card:     #1f1f1f;
+    --text:     #f3f2f1;
+    --text-soft:#c8c6c4;
+    --border:   #3b3a39;
+    --border-strong: #605e5c;
+    --danger-bg:rgba(241,112,123,.12);
+    --danger:   #f1707b;
+    --success-bg:rgba(90,173,106,.12);
+    --success:  #5aad6a;
+    --azure:    #479ef5;
+    --azure-dark:#2899f5;
+    --azure-glow: rgba(71,158,245,.2);
+    --info-bg:  rgba(71,158,245,.12);
+    --info:     #479ef5;
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .2s, color .2s;
+    -webkit-font-smoothing: antialiased;
+    padding: 24px;
+}
+
+body::before {
+    content: '';
+    position: fixed;
+    top: -200px; left: -200px;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(0,120,212,.12) 0%, transparent 70%);
+    pointer-events: none;
+}
+body::after {
+    content: '';
+    position: fixed;
+    bottom: -150px; right: -150px;
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, rgba(0,183,195,.1) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.shell {
+    width: min(620px, 100%);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.12);
+    position: relative;
+    z-index: 1;
+    overflow: hidden;
+}
+
+.shell-header {
+    background: linear-gradient(135deg, #0b3c5d 0%, #0078d4 60%, #00b7c3 100%);
+    padding: 28px 32px;
+    color: white;
+}
+
+.shell-header .brand {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 14px;
+}
+.brand-icon {
+    width: 34px; height: 34px;
+    background: rgba(255,255,255,.2);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+}
+.brand-name { font-size: 13px; font-weight: 700; letter-spacing: .04em; }
+
+.shell-header h1 { font-size: 24px; font-weight: 800; letter-spacing: -.01em; margin-bottom: 4px; }
+.shell-header p { font-size: 13px; color: rgba(255,255,255,.8); }
+
+.shell-body { padding: 28px 32px; }
+
+.theme-toggle {
+    position: absolute;
+    top: 14px; right: 14px;
+    width: 32px; height: 32px;
+    border: none;
+    background: rgba(255,255,255,.15);
+    color: white;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+}
+
+.alert {
+    padding: 11px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.alert-danger  { background: var(--danger-bg);  color: var(--danger); }
+.alert-success { background: var(--success-bg); color: var(--success); }
+.alert-info    { background: var(--info-bg);    color: var(--info); }
+
+.connected-banner {
+    background: var(--success-bg);
+    color: var(--success);
+    border-radius: 6px;
+    padding: 14px 16px;
+    font-size: 13px;
+    margin-bottom: 18px;
+}
+.connected-banner strong { display: block; margin-bottom: 4px; font-size: 14px; }
+
+.section-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--text-soft);
+    margin: 18px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+.section-label:first-of-type { margin-top: 0; }
+
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.form-group { margin-bottom: 12px; }
+.form-group.full { grid-column: 1 / -1; }
+.form-group label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-soft);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: 5px;
+}
+.form-group input {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: all .15s;
+    height: 36px;
+}
+.form-group input:focus {
+    border-color: var(--azure);
+    background: var(--card);
+    box-shadow: 0 0 0 3px var(--azure-glow);
+}
+.form-hint { font-size: 11px; color: var(--text-soft); margin-top: 4px; }
+
+.btn-connect {
+    width: 100%;
+    padding: 12px;
+    background: var(--azure);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: all .15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+.btn-connect:hover { background: var(--azure-dark); transform: translateY(-1px); }
+
+.btn-secondary {
+    width: 100%;
+    padding: 11px;
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: all .15s;
+}
+.btn-secondary:hover { background: var(--bg); }
+
+.shell-footer {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-soft);
+    padding: 14px 32px;
+    border-top: 1px solid var(--border);
+}
+
+@media (max-width: 520px) {
+    .form-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+    <div class="shell-header">
+        <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙</button>
+        <div class="brand">
+            <div class="brand-icon">⚡</div>
+            <span class="brand-name">AUTOMATION PORTAL</span>
+        </div>
+        <h1>Connect Active Directory</h1>
+        <p>Thiết lập kết nối tới một Domain để bắt đầu sử dụng các chức năng quản trị.</p>
+    </div>
+
+    <div class="shell-body">
+
+        {% if error %}
+        <div class="alert alert-danger">⚠ {{ error }}</div>
+        {% endif %}
+
+        {% if cfg %}
+        <div class="connected-banner">
+            <strong>✓ Đang kết nối tới domain</strong>
+            Host: <code>{{ cfg.ldap_host }}</code> &nbsp;|&nbsp; Domain: <code>{{ cfg.domain_suffix }}</code>
+        </div>
+        <form method="POST" action="/disconnect-domain">
+            <button type="submit" class="btn-secondary" style="color:var(--danger); border-color:var(--danger);"
+                    onclick="return confirm('Bạn chắc chắn muốn thoát domain hiện tại? Toàn bộ session sẽ bị đăng xuất.');">
+                🔌 Thoát Domain Hiện Tại
+            </button>
+        </form>
+        <div class="section-label" style="margin-top:24px;">Hoặc kết nối tới domain khác</div>
+        {% endif %}
+
+        <form method="POST" action="/connect-domain">
+
+            <div class="form-group full">
+                <label>Địa chỉ Active Directory (IP / Hostname)</label>
+                <input type="text" name="ldap_host" placeholder="vd: 192.168.99.84" required
+                       value="{{ cfg.ldap_host if cfg else '' }}" autofocus>
+            </div>
+
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Tài khoản</label>
+                    <input type="text" name="admin_user" placeholder="vd: Administrator" required
+                           value="{{ cfg.ssh_user if cfg else 'Administrator' }}">
+                </div>
+                <div class="form-group">
+                    <label>Mật khẩu</label>
+                    <input type="password" name="admin_pass" placeholder="Nhập mật khẩu" required>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-connect">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                Kết Nối Domain
+            </button>
+        </form>
+
+    </div>
+
+    <div class="shell-footer">AIT Infrastructure Automation Platform &copy; 2026 by NguyenLong</div>
+</div>
+
+<script>
+function toggleTheme() {
+    const html = document.documentElement;
+    const btn  = document.getElementById('themeBtn');
+    const dark = html.getAttribute('data-theme') === 'dark';
+    if (dark) {
+        html.removeAttribute('data-theme');
+        localStorage.setItem('pv_theme', 'light');
+        btn.textContent = '🌙';
+    } else {
+        html.setAttribute('data-theme', 'dark');
+        localStorage.setItem('pv_theme', 'dark');
+        btn.textContent = '☀️';
+    }
+}
+window.onload = function() {
+    const t = localStorage.getItem('pv_theme');
+    const btn = document.getElementById('themeBtn');
+    if (t === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        btn.textContent = '☀️';
+    }
+};
+</script>
+
+</body>
+</html>
