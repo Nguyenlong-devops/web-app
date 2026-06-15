@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "main" ]
 
-# Sửa Warning về Node.js 20 bằng cách ép workflow dùng Node 24 trước thời hạn
+# Bạn có thể giữ hoặc bỏ biến này đi sau khi đã nâng cấp phiên bản Action bên dưới
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -13,27 +13,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # Cập nhật actions/checkout lên bản v4 chuẩn
+    # 1. Nâng cấp từ @v4 lên @v4.2.2 (hoặc phiên bản mới nhất hỗ trợ Node 24)
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v4.2.2
 
-    # Dùng SSH thẳng vào máy Linux để chạy docker compose up --build
+    # 2. Nâng cấp appleboy/ssh-action lên bản mới nhất tương thích hoàn toàn
     - name: SSH into Linux Server & Deploy
-      uses: appleboy/ssh-action@v1.0.3
+      uses: appleboy/ssh-action@v1.2.0
       with:
         host: ${{ secrets.SERVER_HOST }}
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         port: 22
         script: |
-          # Di chuyển vào đúng thư mục dự án trên máy Linux
           cd ~/it-dashboard
-          
-          # Đồng bộ code mới nhất từ GitHub về máy Linux
           git pull origin main
-          
-          # Khởi chạy và tự Build Docker Compose cục bộ ngay trên Server của bạn
           docker compose up --build -d
-          
-          # Dọn dẹp các bản build cũ/rác để tiết kiệm tài nguyên
           docker image prune -f
