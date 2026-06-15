@@ -22,8 +22,6 @@ services:
   web-app:
     build: .
     container_name: it_dashboard_app
-    volumes:
-      - ./app:/app
     ports:
       - "80:5000"
     environment:
