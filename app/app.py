@@ -585,7 +585,7 @@ def edit_user_ad():
     for g in add_groups:
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; "
-            f"try {{ Add-ADGroupMember -Identity '{g}' -Members '{username}' -Confirm:$false; exit 0 }} "
+            f"Add-ADGroupMember -Identity '{g}' -Members '{username}'; "
             f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
             cfg, return_stderr=True
         )
@@ -790,7 +790,7 @@ def api_remove_user_group():
     data     = request.get_json()
     username = data.get('username')
     group    = data.get('group')
-    ps_cmd = f"Import-Module ActiveDirectory; Remove-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:$false"
+    ps_cmd = f"Import-Module ActiveDirectory; Remove-ADGroupMember -Identity '{group}' -Members '{username}'"
     out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
 
     err_clean = err.strip() if err else ''
@@ -803,6 +803,26 @@ def api_remove_user_group():
 
     write_log(session['user'], 'REMOVE_FROM_GROUP', target=username, detail=f"group={group} (OK)")
     return jsonify({"status": "success"})
+
+# ─────────────────────────────────────────────
+#  API — test SSH (debug only)
+# ─────────────────────────────────────────────
+@app.route('/api/test-ssh', methods=['POST'])
+@domain_required
+@admin_required
+def api_test_ssh():
+    cfg  = get_active_domain_config()
+    data = request.get_json()
+    cmd  = data.get('cmd', 'Get-Date')
+    out, err, exitcode = run_powershell_ssh(cmd, cfg, return_stderr=True)
+    return jsonify({
+        "cmd": cmd,
+        "out": out[:2000],
+        "err": err[:2000],
+        "exitcode": exitcode,
+        "cfg_host": cfg['ssh_host'] if cfg else None,
+        "cfg_user": cfg['ssh_user'] if cfg else None,
+    })
 
 # ─────────────────────────────────────────────
 #  API — add user to group
@@ -820,10 +840,8 @@ def api_add_user_group():
         return jsonify({"status": "error", "message": "Vui lòng chọn group."})
 
     group = group.strip()
-    ps_cmd = f"Import-Module ActiveDirectory; Add-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:$false"
-    print(f"[ADD_GROUP] CMD: {ps_cmd}", flush=True)
+    ps_cmd = f"Import-Module ActiveDirectory; Add-ADGroupMember -Identity '{group}' -Members '{username}'"
     out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
-    print(f"[ADD_GROUP] out={repr(out[:200])} err={repr(err[:200])} exit={exitcode}", flush=True)
 
     # PowerShell ghi lỗi vào stderr, không dùng exit code
     err_clean = err.strip() if err else ''
