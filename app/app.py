@@ -361,8 +361,14 @@ def login():
                     entry        = conn.entries[0]
                     display_name = str(entry.name) if 'name' in entry else username
                     groups       = entry.memberOf.values if 'memberOf' in entry else []
+                    admin_keywords = [
+                        cfg['admin_group_dn'].lower(),
+                        "cn=domain admins",
+                        "cn=administrators,cn=builtin",  # Built-in Administrators group
+                    ]
                     for g in groups:
-                        if cfg['admin_group_dn'].lower() in g.lower() or "cn=domain admins" in g.lower():
+                        g_lower = g.lower()
+                        if any(kw in g_lower for kw in admin_keywords):
                             is_admin = True
                             break
                 session['user']         = username
