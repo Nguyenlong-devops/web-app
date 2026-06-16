@@ -165,11 +165,11 @@ def deactivate_domain_config():
 # ─────────────────────────────────────────────
 #  SSH / PowerShell — dùng config domain hiện tại
 # ─────────────────────────────────────────────
-def run_powershell_ssh(command_block, cfg=None):
+def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
     if cfg is None:
         cfg = get_active_domain_config()
     if not cfg:
-        return ""
+        return ("", "Chưa kết nối domain") if return_stderr else ""
 
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -178,9 +178,15 @@ def run_powershell_ssh(command_block, cfg=None):
         encoded_cmd = base64.b64encode(command_block.encode('utf-16-le')).decode('utf-8')
         full_command = f"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded_cmd}"
         stdin, stdout, stderr = ssh.exec_command(full_command)
-        return stdout.read().decode('utf-8', errors='ignore')
+        out = stdout.read().decode('utf-8', errors='ignore')
+        err = stderr.read().decode('utf-8', errors='ignore')
+        if return_stderr:
+            return out, err
+        return out
     except Exception as e:
         print(f"SSH Error: {e}")
+        if return_stderr:
+            return "", str(e)
         return ""
     finally:
         ssh.close()
@@ -518,32 +524,40 @@ def edit_user_ad():
     username   = request.form.get('edit_username')
     password   = request.form.get('edit_password')
     status     = request.form.get('edit_status')
-    add_groups = request.form.getlist('edit_add_groups')
+    add_groups = [g.strip() for g in request.form.getlist('edit_add_groups') if g.strip()]
 
-    ps_cmds = ["Import-Module ActiveDirectory"]
     details = []
 
     if password and password.strip():
-        ps_cmds.append(
+        out, err = run_powershell_ssh(
+            "Import-Module ActiveDirectory; "
             f"Set-ADAccountPassword -Identity '{username}' "
-            f"-NewPassword (ConvertTo-SecureString '{password}' -AsPlainText -Force) -Reset $true"
+            f"-NewPassword (ConvertTo-SecureString '{password}' -AsPlainText -Force) -Reset $true",
+            cfg, return_stderr=True
         )
-        details.append("password_reset")
+        details.append(f"password_reset {'(OK)' if not err.strip() else '(ERROR: ' + err.strip()[:200] + ')'}")
 
     if status == "true":
-        ps_cmds.append(f"Enable-ADAccount -Identity '{username}'")
-        details.append("enabled=true")
+        out, err = run_powershell_ssh(
+            f"Import-Module ActiveDirectory; Enable-ADAccount -Identity '{username}'",
+            cfg, return_stderr=True
+        )
+        details.append(f"enabled=true {'(OK)' if not err.strip() else '(ERROR: ' + err.strip()[:200] + ')'}")
     else:
-        ps_cmds.append(f"Disable-ADAccount -Identity '{username}'")
-        details.append("enabled=false")
+        out, err = run_powershell_ssh(
+            f"Import-Module ActiveDirectory; Disable-ADAccount -Identity '{username}'",
+            cfg, return_stderr=True
+        )
+        details.append(f"enabled=false {'(OK)' if not err.strip() else '(ERROR: ' + err.strip()[:200] + ')'}")
 
     for g in add_groups:
-        if g.strip():
-            ps_cmds.append(f"Add-ADGroupMember -Identity '{g.strip()}' -Members '{username}'")
-            details.append(f"add_group={g.strip()}")
+        out, err = run_powershell_ssh(
+            f"Import-Module ActiveDirectory; Add-ADGroupMember -Identity '{g}' -Members '{username}' -Confirm:$false",
+            cfg, return_stderr=True
+        )
+        details.append(f"add_group={g} {'(OK)' if not err.strip() else '(ERROR: ' + err.strip()[:200] + ')'}")
 
-    run_powershell_ssh(" ; ".join(ps_cmds), cfg)
-    write_log(session['user'], 'EDIT_USER', target=username, detail=', '.join(details))
+    write_log(session['user'], 'EDIT_USER', target=username, detail='; '.join(details))
     return redirect(url_for('index'))
 
 # ─────────────────────────────────────────────
@@ -743,9 +757,42 @@ def api_remove_user_group():
     username = data.get('username')
     group    = data.get('group')
     ps_cmd   = f"Import-Module ActiveDirectory; Remove-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:$false"
-    run_powershell_ssh(ps_cmd, cfg)
-    write_log(session['user'], 'REMOVE_FROM_GROUP', target=username, detail=f"group={group}")
+    out, err = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+
+    if err.strip():
+        write_log(session['user'], 'REMOVE_FROM_GROUP', target=username,
+                  detail=f"group={group} (ERROR: {err.strip()[:300]})")
+        return jsonify({"status": "error", "message": f"Lỗi AD: {err.strip()[:200]}"})
+
+    write_log(session['user'], 'REMOVE_FROM_GROUP', target=username, detail=f"group={group} (OK)")
     return jsonify({"status": "success"})
+
+# ─────────────────────────────────────────────
+#  API — add user to group
+# ─────────────────────────────────────────────
+@app.route('/api/add-user-group', methods=['POST'])
+@domain_required
+@admin_required
+def api_add_user_group():
+    cfg      = get_active_domain_config()
+    data     = request.get_json()
+    username = data.get('username')
+    group    = data.get('group')
+
+    if not group or not group.strip():
+        return jsonify({"status": "error", "message": "Vui lòng chọn group."})
+
+    group = group.strip()
+    ps_cmd = f"Import-Module ActiveDirectory; Add-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:$false"
+    out, err = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+
+    if err.strip():
+        write_log(session['user'], 'ADD_TO_GROUP', target=username,
+                  detail=f"group={group} (ERROR: {err.strip()[:300]})")
+        return jsonify({"status": "error", "message": f"Lỗi AD: {err.strip()[:200]}"})
+
+    write_log(session['user'], 'ADD_TO_GROUP', target=username, detail=f"group={group} (OK)")
+    return jsonify({"status": "success", "group": group})
 
 # ─────────────────────────────────────────────
 #  API — revoke license
@@ -789,9 +836,12 @@ def api_revoke_license_direct():
         conn.close()
     return jsonify({"status": "error", "message": "Thu hồi thất bại"})
 
+# Chạy init_db() ở module level — đảm bảo luôn được gọi dù
+# khởi động bằng Gunicorn, Flask dev server, hay bất kỳ WSGI nào.
+try:
+    init_db()
+except Exception as _e:
+    print(f"[startup] init_db warning: {_e}")
+
 if __name__ == '__main__':
-    try:
-        init_db()
-    except Exception:
-        pass
     app.run(host='0.0.0.0', port=5000, debug=True)
