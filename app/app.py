@@ -28,57 +28,79 @@ def get_db_connection():
     )
 
 def init_db():
-    """Khởi tạo constraint, audit_log, domain_config nếu chưa có."""
-    conn = get_db_connection()
-    cur  = conn.cursor()
-    try:
-        cur.execute("""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_constraint WHERE conname = 'uq_user_software_user_key'
-                ) THEN
-                    ALTER TABLE user_software
-                    ADD CONSTRAINT uq_user_software_user_key
-                    UNIQUE (sam_account_name, software_key);
-                END IF;
-            END $$;
-        """)
+    """Khởi tạo tất cả bảng và constraint cần thiết.
+    Mỗi bước dùng transaction riêng để lỗi một bước không ảnh hưởng bước khác."""
 
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS audit_log (
-                id          SERIAL PRIMARY KEY,
-                ts          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                actor       VARCHAR(128) NOT NULL,
-                action      VARCHAR(64)  NOT NULL,
-                target      VARCHAR(256),
-                detail      TEXT,
-                ip_address  VARCHAR(64)
-            );
-        """)
+    steps = [
+        # 1. Bảng software_inventory
+        """CREATE TABLE IF NOT EXISTS software_inventory (
+            id              SERIAL PRIMARY KEY,
+            software_key    VARCHAR(255) NOT NULL UNIQUE,
+            software_name   VARCHAR(255) NOT NULL,
+            total_licenses  INTEGER NOT NULL DEFAULT 0,
+            used_licenses   INTEGER NOT NULL DEFAULT 0
+        )""",
 
-        # Cấu hình domain — chỉ 1 record active tại 1 thời điểm
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS domain_config (
-                id              SERIAL PRIMARY KEY,
-                ldap_host       VARCHAR(255) NOT NULL,
-                domain_suffix   VARCHAR(255) NOT NULL,
-                base_dn         VARCHAR(255) NOT NULL,
-                admin_group_dn  VARCHAR(255) NOT NULL,
-                ssh_host        VARCHAR(255) NOT NULL,
-                ssh_user        VARCHAR(128) NOT NULL DEFAULT 'Administrator',
-                ssh_pass        VARCHAR(512) NOT NULL,
-                is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-        """)
-        conn.commit()
-    except Exception as e:
-        print(f"init_db warning: {e}")
-        conn.rollback()
-    finally:
-        cur.close()
-        conn.close()
+        # 2. Bảng user_software
+        """CREATE TABLE IF NOT EXISTS user_software (
+            id               SERIAL PRIMARY KEY,
+            sam_account_name VARCHAR(128) NOT NULL,
+            software_key     VARCHAR(255) NOT NULL,
+            quantity         INTEGER NOT NULL DEFAULT 1,
+            assigned_at      TIMESTAMPTZ DEFAULT NOW()
+        )""",
+
+        # 3. UNIQUE constraint trên user_software (cần cho ON CONFLICT)
+        """DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'uq_user_software_user_key'
+            ) THEN
+                ALTER TABLE user_software
+                ADD CONSTRAINT uq_user_software_user_key
+                UNIQUE (sam_account_name, software_key);
+            END IF;
+        END $$""",
+
+        # 4. Bảng audit_log
+        """CREATE TABLE IF NOT EXISTS audit_log (
+            id          SERIAL PRIMARY KEY,
+            ts          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            actor       VARCHAR(128) NOT NULL,
+            action      VARCHAR(64)  NOT NULL,
+            target      VARCHAR(256),
+            detail      TEXT,
+            ip_address  VARCHAR(64)
+        )""",
+
+        # 5. Bảng domain_config
+        """CREATE TABLE IF NOT EXISTS domain_config (
+            id              SERIAL PRIMARY KEY,
+            ldap_host       VARCHAR(255) NOT NULL,
+            domain_suffix   VARCHAR(255) NOT NULL,
+            base_dn         VARCHAR(255) NOT NULL,
+            admin_group_dn  VARCHAR(255) NOT NULL,
+            ssh_host        VARCHAR(255) NOT NULL,
+            ssh_user        VARCHAR(128) NOT NULL DEFAULT 'Administrator',
+            ssh_pass        VARCHAR(512) NOT NULL,
+            is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )""",
+    ]
+
+    for sql in steps:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        try:
+            cur.execute(sql)
+            conn.commit()
+            print(f"[init_db] OK: {sql.strip()[:60]}...")
+        except Exception as e:
+            conn.rollback()
+            print(f"[init_db] SKIP (already exists or error): {e}")
+        finally:
+            cur.close()
+            conn.close()
 
 def write_log(actor: str, action: str, target: str = None, detail: str = None):
     """Ghi một dòng audit log. Không raise exception để không làm hỏng luồng chính."""
