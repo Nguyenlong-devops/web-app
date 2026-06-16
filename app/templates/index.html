@@ -381,7 +381,11 @@
                                 <div class="table-actions">
                                     {% if session.get('is_admin') %}
                                     <button class="btn btn-ghost btn-sm"
-                                            onclick="openUserEditModal('{{ u.SamAccountName }}','{{ u.Name }}',{{ 'true' if u.Enabled else 'false' }},`{{ u.Groups }}`)">
+                                            onclick="openUserEditModal(this)"
+                                            data-sam="{{ u.SamAccountName }}"
+                                            data-name="{{ u.Name | e }}"
+                                            data-enabled="{{ 'true' if u.Enabled else 'false' }}"
+                                            data-groups="{{ u.Groups | e if u.Groups else '' }}">
                                         ✏ Edit
                                     </button>
                                     {% endif %}
@@ -656,19 +660,83 @@
 
 <!-- ══════════════════ MODAL: Edit User AD ══════════════════ -->
 <div id="userEditModal" class="modal">
-    <div class="modal-content" style="max-width:680px;">
+    <div class="modal-content" style="max-width:560px;">
         <div class="modal-header">
             <div class="modal-title">✏ Chỉnh sửa User AD</div>
             <button class="close-btn" onclick="closeUserModal()">✕</button>
         </div>
-        <div class="modal-body" id="userEditModalBody">
-            <!-- Injected by JS -->
+        <div class="modal-body">
+
+            <!-- Info -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+                <div>
+                    <div class="eu-label">Username</div>
+                    <div id="eu_sam" class="eu-value eu-mono"></div>
+                </div>
+                <div>
+                    <div class="eu-label">Display Name</div>
+                    <div id="eu_name" class="eu-value"></div>
+                </div>
+            </div>
+
+            <!-- Trạng thái -->
+            <div style="margin-bottom:16px;">
+                <div class="eu-label" style="margin-bottom:8px;">Trạng Thái</div>
+                <div style="display:flex;gap:8px;">
+                    <button id="eu_btn_active" onclick="euSetStatus(true)"
+                        style="flex:1;padding:10px 0;border-radius:6px;border:2px solid;font-weight:600;font-size:13px;cursor:pointer;transition:all .15s;">
+                        ✅ Active
+                    </button>
+                    <button id="eu_btn_disabled" onclick="euSetStatus(false)"
+                        style="flex:1;padding:10px 0;border-radius:6px;border:2px solid;font-weight:600;font-size:13px;cursor:pointer;transition:all .15s;">
+                        ❌ Disabled
+                    </button>
+                </div>
+                <input type="hidden" id="eu_status">
+            </div>
+
+            <div style="height:1px;background:var(--border-light);margin-bottom:16px;"></div>
+
+            <!-- Groups hiện tại -->
+            <div class="eu-label" style="margin-bottom:8px;">Quản Lý Group</div>
+            <div style="margin-bottom:10px;">
+                <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Groups hiện tại — bấm ✕ để xóa</div>
+                <div id="eu_current_groups"
+                    style="min-height:38px;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+                </div>
+            </div>
+
+            <!-- Thêm group -->
+            <div>
+                <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Thêm vào Group</div>
+                <div style="display:flex;gap:8px;">
+                    <select id="eu_group_select"
+                        style="flex:1;height:36px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;">
+                    </select>
+                    <button id="eu_add_btn" onclick="euAddGroup()"
+                        style="height:36px;padding:0 18px;background:var(--azure);color:#fff;border:none;border-radius:4px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap;">
+                        + Thêm
+                    </button>
+                </div>
+            </div>
+
+            <div style="margin-top:14px;padding:10px 12px;background:var(--info-bg);border-radius:6px;font-size:12px;color:var(--info);">
+                ℹ Thay đổi Group áp dụng ngay lên AD. Bấm "Lưu" để cập nhật Trạng Thái.
+            </div>
         </div>
-        <div class="modal-footer" id="userEditModalFooter">
-            <!-- Injected by JS -->
+
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeUserModal()">Đóng</button>
+            <button class="btn btn-primary" onclick="euSaveStatus()">💾 Lưu Trạng Thái</button>
         </div>
     </div>
 </div>
+
+<style>
+.eu-label { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);margin-bottom:5px; }
+.eu-value { padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;font-size:14px;color:var(--text); }
+.eu-mono  { font-family:monospace;font-weight:700;color:var(--azure); }
+</style>
 
 <!-- Danh sách toàn bộ AD Group (dùng cho modal Edit User) -->
 <script id="adGroupsData" type="application/json">{{ ad_groups | map(attribute='Name') | list | tojson }}</script>
@@ -876,228 +944,173 @@ function submitRevoke() {
 }
 
 // ─────────────────────── USER EDIT MODAL ───────────────────────
-const ALL_AD_GROUPS = JSON.parse(document.getElementById('adGroupsData')?.textContent || '[]');
+let ALL_AD_GROUPS = null;
+function getAdGroups() {
+    if (!ALL_AD_GROUPS) {
+        try { ALL_AD_GROUPS = JSON.parse(document.getElementById('adGroupsData')?.textContent || '[]'); }
+        catch(e) { ALL_AD_GROUPS = []; }
+    }
+    return ALL_AD_GROUPS;
+}
 
 let _editSam    = null;
 let _editGroups = [];   // groups user đang có (sync real-time)
 
-// ── Mở modal ──
-function openUserEditModal(sam, name, enabled, groupsStr) {
-    _editSam    = sam;
-    _editGroups = groupsStr.split(',').map(g => g.trim()).filter(Boolean);
+// ══════════════════ EDIT USER MODAL ══════════════════
+let _euSam    = '';
+let _euGroups = [];   // groups hiện tại của user
 
-    const isActive = (enabled === 'true' || enabled === true);
+function openUserEditModal(btn) {
+    _euSam    = btn.dataset.sam    || '';
+    _euGroups = (btn.dataset.groups || '').split(',').map(g => g.trim()).filter(Boolean);
 
-    document.getElementById('userEditModalBody').innerHTML = `
+    const isActive = btn.dataset.enabled === 'true';
 
-        <!-- INFO ROW -->
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
-            <div>
-                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);margin-bottom:5px;">Username</div>
-                <div style="
-                    padding:8px 12px; background:var(--bg-secondary);
-                    border:1px solid var(--border); border-radius:var(--r-sm);
-                    font-weight:700; font-size:14px; font-family:monospace; color:var(--azure);">
-                    ${sam}
-                </div>
-            </div>
-            <div>
-                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);margin-bottom:5px;">Display Name</div>
-                <div style="
-                    padding:8px 12px; background:var(--bg-secondary);
-                    border:1px solid var(--border); border-radius:var(--r-sm);
-                    font-size:14px; color:var(--text);">
-                    ${name}
-                </div>
-            </div>
-        </div>
+    document.getElementById('eu_sam').textContent  = _euSam;
+    document.getElementById('eu_name').textContent = btn.dataset.name || '';
 
-        <!-- TRẠNG THÁI -->
-        <div style="margin-bottom:16px;">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);margin-bottom:8px;">Trạng Thái Tài Khoản</div>
-            <div style="display:flex; gap:8px;">
-                <button id="btn_enable"
-                    onclick="setStatusBtn(true)"
-                    style="flex:1; padding:10px; border-radius:var(--r-md); border:2px solid ${isActive ? 'var(--success)' : 'var(--border)'}; background:${isActive ? 'var(--success-bg)' : 'var(--card)'}; color:${isActive ? 'var(--success)' : 'var(--text-soft)'}; font-weight:600; font-size:13px; cursor:pointer; transition:all .15s; display:flex; align-items:center; justify-content:center; gap:6px;">
-                    <span style="font-size:16px;">✅</span> Active
-                </button>
-                <button id="btn_disable"
-                    onclick="setStatusBtn(false)"
-                    style="flex:1; padding:10px; border-radius:var(--r-md); border:2px solid ${!isActive ? 'var(--danger)' : 'var(--border)'}; background:${!isActive ? 'var(--danger-bg)' : 'var(--card)'}; color:${!isActive ? 'var(--danger)' : 'var(--text-soft)'}; font-weight:600; font-size:13px; cursor:pointer; transition:all .15s; display:flex; align-items:center; justify-content:center; gap:6px;">
-                    <span style="font-size:16px;">❌</span> Disabled
-                </button>
-            </div>
-            <input type="hidden" id="edit_enabled" value="${isActive ? 'true' : 'false'}">
-        </div>
+    euSetStatus(isActive);
+    euRenderGroups();
+    euRenderSelect();
 
-        <!-- DIVIDER -->
-        <div style="height:1px; background:var(--border-light); margin-bottom:16px;"></div>
-
-        <!-- GROUPS SECTION -->
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);margin-bottom:10px;">
-            Quản Lý Group
-        </div>
-
-        <!-- Current groups -->
-        <div style="margin-bottom:12px;">
-            <div style="font-size:12px; color:var(--text-soft); margin-bottom:6px; font-weight:500;">Groups hiện tại — click ✕ để xóa</div>
-            <div id="current_groups_wrap"
-                style="min-height:36px; padding:8px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--r-md); display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
-            </div>
-        </div>
-
-        <!-- Add group -->
-        <div>
-            <div style="font-size:12px; color:var(--text-soft); margin-bottom:6px; font-weight:500;">Thêm vào Group</div>
-            <div style="display:flex; gap:8px; align-items:center;">
-                <select id="add_group_select"
-                    style="flex:1; height:36px; padding:4px 10px; border:1px solid var(--border-strong); border-radius:var(--r-sm); background:var(--card); color:var(--text); font-size:13px; outline:none;">
-                    <option value="">— Chọn group —</option>
-                </select>
-                <button onclick="doAddGroup()"
-                    style="height:36px; padding:0 16px; background:var(--azure); color:white; border:none; border-radius:var(--r-sm); font-weight:600; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:6px; white-space:nowrap; transition:background .15s;"
-                    onmouseover="this.style.background='var(--azure-hover)'" onmouseout="this.style.background='var(--azure)'">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    Thêm
-                </button>
-            </div>
-        </div>
-
-        <!-- Footer note -->
-        <div style="margin-top:14px; padding:10px 12px; background:var(--info-bg); border-radius:var(--r-sm); font-size:12px; color:var(--info); display:flex; align-items:center; gap:6px;">
-            ℹ Thay đổi Group được áp dụng ngay lên AD. Bấm "Lưu" để cập nhật Trạng Thái.
-        </div>
-    `;
-
-    document.getElementById('userEditModalFooter').innerHTML = `
-        <button class="btn btn-secondary" onclick="closeUserModal()">Đóng</button>
-        <button class="btn btn-primary" onclick="submitUserEdit()">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
-            Lưu Trạng Thái
-        </button>
-    `;
-
-    // Render groups sau khi DOM đã sẵn sàng
-    renderCurrentGroups();
-    renderAddGroupSelect();
     document.getElementById('userEditModal').classList.add('show');
 }
 
-// ── Render badge groups hiện tại ──
-function renderCurrentGroups() {
-    const wrap = document.getElementById('current_groups_wrap');
-    if (!wrap) return;
-    if (!_editGroups.length) {
-        wrap.innerHTML = `<span style="font-size:12px; color:var(--text-muted); padding:2px 4px;">Chưa thuộc group nào</span>`;
+function closeUserModal() {
+    document.getElementById('userEditModal').classList.remove('show');
+}
+
+// ── Trạng thái ──
+function euSetStatus(active) {
+    document.getElementById('eu_status').value = active ? 'true' : 'false';
+
+    const bA = document.getElementById('eu_btn_active');
+    const bD = document.getElementById('eu_btn_disabled');
+
+    bA.style.borderColor = active ? 'var(--success)' : 'var(--border)';
+    bA.style.background  = active ? 'var(--success-bg)' : 'var(--card)';
+    bA.style.color       = active ? 'var(--success)' : 'var(--text-soft)';
+
+    bD.style.borderColor = !active ? 'var(--danger)' : 'var(--border)';
+    bD.style.background  = !active ? 'var(--danger-bg)' : 'var(--card)';
+    bD.style.color       = !active ? 'var(--danger)' : 'var(--text-soft)';
+}
+
+// ── Render badges group hiện tại ──
+function euRenderGroups() {
+    const wrap = document.getElementById('eu_current_groups');
+    wrap.innerHTML = '';
+    if (!_euGroups.length) {
+        const em = document.createElement('span');
+        em.style.cssText = 'font-size:12px;color:var(--text-muted);';
+        em.textContent = 'Chưa thuộc group nào';
+        wrap.appendChild(em);
         return;
     }
-    wrap.innerHTML = _editGroups.map(g => `
-        <span style="
-            display:inline-flex; align-items:center; gap:5px;
-            padding:4px 10px; border-radius:20px;
-            background:var(--info-bg); color:var(--info);
-            border:1px solid var(--info-border);
-            font-size:12px; font-weight:600;">
-            ${g}
-            <button onclick="doRemoveGroup('${g}')" title="Xóa khỏi group"
-                style="width:16px;height:16px;border-radius:50%;border:none;background:var(--info);color:white;cursor:pointer;font-size:10px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;">✕</button>
-        </span>
-    `).join('');
+    _euGroups.forEach(g => {
+        const pill = document.createElement('span');
+        pill.style.cssText = 'display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;background:var(--info-bg);color:var(--info);border:1px solid var(--info-border);font-size:12px;font-weight:600;';
+        pill.textContent = g + ' ';
+
+        const x = document.createElement('button');
+        x.textContent = '✕';
+        x.title = 'Xóa khỏi group';
+        x.style.cssText = 'width:15px;height:15px;border-radius:50%;border:none;background:var(--info);color:#fff;cursor:pointer;font-size:9px;display:inline-flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;';
+        x.onclick = () => euRemoveGroup(g);
+
+        pill.appendChild(x);
+        wrap.appendChild(pill);
+    });
 }
 
-// ── Render dropdown chọn group để thêm ──
-function renderAddGroupSelect() {
-    const sel = document.getElementById('add_group_select');
-    if (!sel) return;
-    const available = ALL_AD_GROUPS.filter(g => !_editGroups.includes(g)).sort();
-    sel.innerHTML = `<option value="">— Chọn group —</option>` +
-        available.map(g => `<option value="${g}">${g}</option>`).join('');
+// ── Render dropdown group chưa có ──
+function euRenderSelect() {
+    const sel = document.getElementById('eu_group_select');
+    sel.innerHTML = '<option value="">— Chọn group —</option>';
+    let allGroups = [];
+    try { allGroups = JSON.parse(document.getElementById('adGroupsData').textContent || '[]'); } catch(e) {}
+    allGroups.filter(g => !_euGroups.includes(g)).sort().forEach(g => {
+        const opt = document.createElement('option');
+        opt.value = g; opt.textContent = g;
+        sel.appendChild(opt);
+    });
 }
 
-// ── Toggle nút Active / Disabled ──
-function setStatusBtn(active) {
-    document.getElementById('edit_enabled').value = active ? 'true' : 'false';
+// ── Thêm group ──
+function euAddGroup() {
+    const sel   = document.getElementById('eu_group_select');
+    const group = sel.value;
+    if (!group) { showToast('Vui lòng chọn group', 'warning'); return; }
 
-    const btnE = document.getElementById('btn_enable');
-    const btnD = document.getElementById('btn_disable');
-
-    btnE.style.borderColor = active ? 'var(--success)' : 'var(--border)';
-    btnE.style.background  = active ? 'var(--success-bg)' : 'var(--card)';
-    btnE.style.color       = active ? 'var(--success)' : 'var(--text-soft)';
-
-    btnD.style.borderColor = !active ? 'var(--danger)' : 'var(--border)';
-    btnD.style.background  = !active ? 'var(--danger-bg)' : 'var(--card)';
-    btnD.style.color       = !active ? 'var(--danger)' : 'var(--text-soft)';
-}
-
-// ── Thêm vào group ──
-function doAddGroup() {
-    const sel   = document.getElementById('add_group_select');
-    const group = sel ? sel.value : '';
-    if (!group) { showToast('Vui lòng chọn group cần thêm', 'warning'); return; }
-
-    // Disable nút trong lúc xử lý
-    sel.disabled = true;
+    const btn = document.getElementById('eu_add_btn');
+    btn.disabled = true;
+    btn.textContent = '...';
 
     fetch('/api/add-user-group', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ username: _editSam, group })
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username: _euSam, group})
     })
     .then(r => r.json())
-    .then(data => {
-        sel.disabled = false;
-        if (data.status === 'success') {
-            _editGroups.push(group);
-            renderCurrentGroups();
-            renderAddGroupSelect();
-            showToast(`✓ Đã thêm "${_editSam}" vào group "${group}"`, 'success');
+    .then(d => {
+        btn.disabled = false;
+        btn.textContent = '+ Thêm';
+        if (d.status === 'success') {
+            _euGroups.push(group);
+            euRenderGroups();
+            euRenderSelect();
+            showToast('Đã thêm vào group: ' + group, 'success');
         } else {
-            showToast(data.message || 'Thêm group thất bại', 'danger');
+            showToast(d.message || 'Thất bại', 'danger');
         }
     })
-    .catch(() => { sel.disabled = false; showToast('Lỗi kết nối', 'danger'); });
+    .catch(() => {
+        btn.disabled = false;
+        btn.textContent = '+ Thêm';
+        showToast('Lỗi kết nối', 'danger');
+    });
 }
 
-// ── Xóa khỏi group ──
-function doRemoveGroup(group) {
-    if (!confirm(`Xóa "${_editSam}" khỏi group "${group}"?`)) return;
-
+// ── Xóa group ──
+function euRemoveGroup(group) {
+    if (!confirm('Xóa "' + _euSam + '" khỏi group "' + group + '"?')) return;
     fetch('/api/remove-user-group', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ username: _editSam, group })
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username: _euSam, group})
     })
     .then(r => r.json())
-    .then(data => {
-        if (data.status === 'success') {
-            _editGroups = _editGroups.filter(g => g !== group);
-            renderCurrentGroups();
-            renderAddGroupSelect();
-            showToast(`✓ Đã xóa "${_editSam}" khỏi group "${group}"`, 'success');
+    .then(d => {
+        if (d.status === 'success') {
+            _euGroups = _euGroups.filter(g => g !== group);
+            euRenderGroups();
+            euRenderSelect();
+            showToast('Đã xóa khỏi group: ' + group, 'success');
         } else {
-            showToast(data.message || 'Xóa group thất bại', 'danger');
+            showToast(d.message || 'Thất bại', 'danger');
         }
     })
     .catch(() => showToast('Lỗi kết nối', 'danger'));
 }
 
-// ── Lưu trạng thái (enable/disable) ──
-function submitUserEdit() {
+// ── Lưu trạng thái ──
+function euSaveStatus() {
     showLoading();
-    const form  = document.createElement('form');
+    const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/edit-user-ad';
-    [['edit_username', _editSam], ['edit_status', document.getElementById('edit_enabled').value]]
-        .forEach(([k, v]) => {
-            const i = document.createElement('input');
-            i.type='hidden'; i.name=k; i.value=v; form.appendChild(i);
-        });
+
+    const f1 = document.createElement('input');
+    f1.type = 'hidden'; f1.name = 'edit_username'; f1.value = _euSam;
+    form.appendChild(f1);
+
+    const f2 = document.createElement('input');
+    f2.type = 'hidden'; f2.name = 'edit_status';
+    f2.value = document.getElementById('eu_status').value;
+    form.appendChild(f2);
+
     document.body.appendChild(form);
     form.submit();
-}
-
-function closeUserModal() {
-    document.getElementById('userEditModal').classList.remove('show');
-    _editSam = null; _editGroups = [];
 }
 
 // ─────────────────────── DISCONNECT DOMAIN ───────────────────────

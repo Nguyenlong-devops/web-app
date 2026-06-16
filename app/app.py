@@ -191,24 +191,29 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
     if cfg is None:
         cfg = get_active_domain_config()
     if not cfg:
-        return ("", "Chưa kết nối domain") if return_stderr else ""
+        return ("", "Chưa kết nối domain", 1) if return_stderr else ""
 
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        ssh.connect(hostname=cfg['ssh_host'], username=cfg['ssh_user'], password=cfg['ssh_pass'], timeout=5)
+        ssh.connect(hostname=cfg['ssh_host'], username=cfg['ssh_user'], password=cfg['ssh_pass'], timeout=10)
         encoded_cmd = base64.b64encode(command_block.encode('utf-16-le')).decode('utf-8')
-        full_command = f"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded_cmd}"
+        # Dùng $LASTEXITCODE và thêm exit code vào cuối stdout để detect lỗi chính xác
+        # stderr của PowerShell thường có noise (progress, warning) dù thành công
+        full_command = (
+            f"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded_cmd}"
+        )
         stdin, stdout, stderr = ssh.exec_command(full_command)
-        out = stdout.read().decode('utf-8', errors='ignore')
-        err = stderr.read().decode('utf-8', errors='ignore')
+        out      = stdout.read().decode('utf-8', errors='ignore')
+        err      = stderr.read().decode('utf-8', errors='ignore')
+        exitcode = stdout.channel.recv_exit_status()  # 0 = success
         if return_stderr:
-            return out, err
+            return out, err, exitcode
         return out
     except Exception as e:
         print(f"SSH Error: {e}")
         if return_stderr:
-            return "", str(e)
+            return "", str(e), 1
         return ""
     finally:
         ssh.close()
@@ -551,33 +556,40 @@ def edit_user_ad():
     details = []
 
     if password and password.strip():
-        out, err = run_powershell_ssh(
+        out, err, ec = run_powershell_ssh(
             "Import-Module ActiveDirectory; "
-            f"Set-ADAccountPassword -Identity '{username}' "
-            f"-NewPassword (ConvertTo-SecureString '{password}' -AsPlainText -Force) -Reset $true",
+            f"try {{ Set-ADAccountPassword -Identity '{username}' "
+            f"-NewPassword (ConvertTo-SecureString '{password}' -AsPlainText -Force) -Reset $true; exit 0 }} "
+            f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
             cfg, return_stderr=True
         )
-        details.append(f"password_reset {'(OK)' if not err.strip() else '(ERROR: ' + err.strip()[:200] + ')'}")
+        details.append(f"password_reset ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
 
     if status == "true":
-        out, err = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; Enable-ADAccount -Identity '{username}'",
+        out, err, ec = run_powershell_ssh(
+            f"Import-Module ActiveDirectory; "
+            f"try {{ Enable-ADAccount -Identity '{username}'; exit 0 }} "
+            f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
             cfg, return_stderr=True
         )
-        details.append(f"enabled=true {'(OK)' if not err.strip() else '(ERROR: ' + err.strip()[:200] + ')'}")
+        details.append(f"enabled=true ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
     else:
-        out, err = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; Disable-ADAccount -Identity '{username}'",
+        out, err, ec = run_powershell_ssh(
+            f"Import-Module ActiveDirectory; "
+            f"try {{ Disable-ADAccount -Identity '{username}'; exit 0 }} "
+            f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
             cfg, return_stderr=True
         )
-        details.append(f"enabled=false {'(OK)' if not err.strip() else '(ERROR: ' + err.strip()[:200] + ')'}")
+        details.append(f"enabled=false ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
 
     for g in add_groups:
-        out, err = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; Add-ADGroupMember -Identity '{g}' -Members '{username}' -Confirm:$false",
+        out, err, ec = run_powershell_ssh(
+            f"Import-Module ActiveDirectory; "
+            f"try {{ Add-ADGroupMember -Identity '{g}' -Members '{username}' -Confirm:$false; exit 0 }} "
+            f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
             cfg, return_stderr=True
         )
-        details.append(f"add_group={g} {'(OK)' if not err.strip() else '(ERROR: ' + err.strip()[:200] + ')'}")
+        details.append(f"add_group={g} ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
 
     write_log(session['user'], 'EDIT_USER', target=username, detail='; '.join(details))
     return redirect(url_for('index'))
@@ -778,13 +790,16 @@ def api_remove_user_group():
     data     = request.get_json()
     username = data.get('username')
     group    = data.get('group')
-    ps_cmd   = f"Import-Module ActiveDirectory; Remove-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:$false"
-    out, err = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    ps_cmd = f"Import-Module ActiveDirectory; Remove-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:$false"
+    out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
 
-    if err.strip():
+    err_clean = err.strip() if err else ''
+    real_errors = [l for l in err_clean.splitlines() if l.strip() and 'WARNING' not in l.upper() and 'VERBOSE' not in l.upper()]
+    if real_errors:
+        error_msg = ' '.join(real_errors)[:300]
         write_log(session['user'], 'REMOVE_FROM_GROUP', target=username,
-                  detail=f"group={group} (ERROR: {err.strip()[:300]})")
-        return jsonify({"status": "error", "message": f"Lỗi AD: {err.strip()[:200]}"})
+                  detail=f"group={group} (ERROR: {error_msg})")
+        return jsonify({"status": "error", "message": f"Lỗi AD: {error_msg[:200]}"})
 
     write_log(session['user'], 'REMOVE_FROM_GROUP', target=username, detail=f"group={group} (OK)")
     return jsonify({"status": "success"})
@@ -806,12 +821,19 @@ def api_add_user_group():
 
     group = group.strip()
     ps_cmd = f"Import-Module ActiveDirectory; Add-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:$false"
-    out, err = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    print(f"[ADD_GROUP] CMD: {ps_cmd}", flush=True)
+    out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    print(f"[ADD_GROUP] out={repr(out[:200])} err={repr(err[:200])} exit={exitcode}", flush=True)
 
-    if err.strip():
+    # PowerShell ghi lỗi vào stderr, không dùng exit code
+    err_clean = err.strip() if err else ''
+    # Bỏ qua các warning/verbose không phải lỗi thật
+    real_errors = [l for l in err_clean.splitlines() if l.strip() and 'WARNING' not in l.upper() and 'VERBOSE' not in l.upper()]
+    if real_errors:
+        error_msg = ' '.join(real_errors)[:300]
         write_log(session['user'], 'ADD_TO_GROUP', target=username,
-                  detail=f"group={group} (ERROR: {err.strip()[:300]})")
-        return jsonify({"status": "error", "message": f"Lỗi AD: {err.strip()[:200]}"})
+                  detail=f"group={group} (ERROR: {error_msg})")
+        return jsonify({"status": "error", "message": f"Lỗi AD: {error_msg[:200]}"})
 
     write_log(session['user'], 'ADD_TO_GROUP', target=username, detail=f"group={group} (OK)")
     return jsonify({"status": "success", "group": group})
