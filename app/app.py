@@ -793,13 +793,13 @@ def api_remove_user_group():
     ps_cmd = f"Import-Module ActiveDirectory; Remove-ADGroupMember -Identity '{group}' -Members '{username}'"
     out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
 
-    err_clean = err.strip() if err else ''
-    real_errors = [l for l in err_clean.splitlines() if l.strip() and 'WARNING' not in l.upper() and 'VERBOSE' not in l.upper()]
-    if real_errors:
-        error_msg = ' '.join(real_errors)[:300]
+    if exitcode != 0:
+        import re
+        errors = re.findall(r'<S S="Error">(.*?)</S>', err, re.DOTALL)
+        error_msg = ' '.join(errors).replace('_x000D__x000A_', ' ').strip()[:200] if errors else f"exit={exitcode}"
         write_log(session['user'], 'REMOVE_FROM_GROUP', target=username,
                   detail=f"group={group} (ERROR: {error_msg})")
-        return jsonify({"status": "error", "message": f"Lỗi AD: {error_msg[:200]}"})
+        return jsonify({"status": "error", "message": f"Lỗi AD: {error_msg}"})
 
     write_log(session['user'], 'REMOVE_FROM_GROUP', target=username, detail=f"group={group} (OK)")
     return jsonify({"status": "success"})
@@ -843,15 +843,14 @@ def api_add_user_group():
     ps_cmd = f"Import-Module ActiveDirectory; Add-ADGroupMember -Identity '{group}' -Members '{username}'"
     out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
 
-    # PowerShell ghi lỗi vào stderr, không dùng exit code
-    err_clean = err.strip() if err else ''
-    # Bỏ qua các warning/verbose không phải lỗi thật
-    real_errors = [l for l in err_clean.splitlines() if l.strip() and 'WARNING' not in l.upper() and 'VERBOSE' not in l.upper()]
-    if real_errors:
-        error_msg = ' '.join(real_errors)[:300]
+    # Dùng exitcode làm chuẩn — stderr luôn chứa CLIXML progress noise dù thành công
+    if exitcode != 0:
+        import re
+        errors = re.findall(r'<S S="Error">(.*?)</S>', err, re.DOTALL)
+        error_msg = ' '.join(errors).replace('_x000D__x000A_', ' ').strip()[:200] if errors else f"exit={exitcode}"
         write_log(session['user'], 'ADD_TO_GROUP', target=username,
                   detail=f"group={group} (ERROR: {error_msg})")
-        return jsonify({"status": "error", "message": f"Lỗi AD: {error_msg[:200]}"})
+        return jsonify({"status": "error", "message": f"Lỗi AD: {error_msg}"})
 
     write_log(session['user'], 'ADD_TO_GROUP', target=username, detail=f"group={group} (OK)")
     return jsonify({"status": "success", "group": group})
