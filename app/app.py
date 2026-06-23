@@ -591,7 +591,7 @@ def edit_user_ad():
     for g in add_groups:
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; "
-            f"Add-ADGroupMember -Identity '{g}' -Members '{username}'; "
+            f"try {{ Add-ADGroupMember -Identity '{g}' -Members '{username}' -Confirm:$false; exit 0 }} "
             f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
             cfg, return_stderr=True
         )
@@ -786,6 +786,52 @@ def api_user_licenses(username):
     return jsonify({"licenses": [{"key": r[0], "quantity": r[1]} for r in rows]})
 
 # ─────────────────────────────────────────────
+#  API — get all AD groups
+# ─────────────────────────────────────────────
+@app.route('/api/groups')
+@domain_required
+@login_required
+def api_get_groups():
+    cfg = get_active_domain_config()
+    ps_cmd = "Get-ADGroup -Filter * | Select-Object -ExpandProperty Name | Sort-Object | ConvertTo-Json -Compress"
+    out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    try:
+        groups = json.loads(out.strip())
+        if isinstance(groups, str):
+            groups = [groups]
+        elif not isinstance(groups, list):
+            groups = []
+    except Exception:
+        groups = []
+    return jsonify({"groups": groups})
+
+# ─────────────────────────────────────────────
+#  API — get all AD OUs
+# ─────────────────────────────────────────────
+@app.route('/api/ous')
+@domain_required
+@login_required
+def api_get_ous():
+    cfg = get_active_domain_config()
+    ps_cmd = (
+        "Get-ADOrganizationalUnit -Filter * -Properties Name,DistinguishedName | "
+        "Select-Object Name,DistinguishedName | "
+        "Sort-Object DistinguishedName | ConvertTo-Json -Compress"
+    )
+    out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    try:
+        ous = json.loads(out.strip())
+        if isinstance(ous, dict):
+            ous = [ous]
+        elif not isinstance(ous, list):
+            ous = []
+        # Format: [{name, dn}]
+        result = [{"name": o.get("Name",""), "dn": o.get("DistinguishedName","")} for o in ous if o.get("DistinguishedName")]
+    except Exception:
+        result = []
+    return jsonify({"ous": result})
+
+# ─────────────────────────────────────────────
 #  API — remove user from group
 # ─────────────────────────────────────────────
 @app.route('/api/remove-user-group', methods=['POST'])
@@ -796,13 +842,22 @@ def api_remove_user_group():
     data     = request.get_json()
     username = data.get('username')
     group    = data.get('group')
-    ps_cmd = f"Import-Module ActiveDirectory; Remove-ADGroupMember -Identity '{group}' -Members '{username}'"
+    ps_cmd = (
+        f"Import-Module ActiveDirectory; "
+        f"try {{ "
+        f"Remove-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:$false; "
+        f"Write-Host 'OK'; exit 0 "
+        f"}} catch {{ Write-Host $_.Exception.Message; exit 1 }}"
+    )
     out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
 
     if exitcode != 0:
         import re
         errors = re.findall(r'<S S="Error">(.*?)</S>', err, re.DOTALL)
-        error_msg = ' '.join(errors).replace('_x000D__x000A_', ' ').strip()[:200] if errors else f"exit={exitcode}"
+        if errors:
+            error_msg = ' '.join(errors).replace('_x000D__x000A_', ' ').strip()[:300]
+        else:
+            error_msg = (out.strip() or err.strip() or f"exit={exitcode}")[:300]
         write_log(session['user'], 'REMOVE_FROM_GROUP', target=username,
                   detail=f"group={group} (ERROR: {error_msg})")
         return jsonify({"status": "error", "message": f"Lỗi AD: {error_msg}"})
@@ -846,14 +901,24 @@ def api_add_user_group():
         return jsonify({"status": "error", "message": "Vui lòng chọn group."})
 
     group = group.strip()
-    ps_cmd = f"Import-Module ActiveDirectory; Add-ADGroupMember -Identity '{group}' -Members '{username}'"
+    ps_cmd = (
+        f"Import-Module ActiveDirectory; "
+        f"try {{ "
+        f"Add-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:$false; "
+        f"Write-Host 'OK'; exit 0 "
+        f"}} catch {{ Write-Host $_.Exception.Message; exit 1 }}"
+    )
     out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
 
-    # Dùng exitcode làm chuẩn — stderr luôn chứa CLIXML progress noise dù thành công
     if exitcode != 0:
         import re
+        # Thử parse CLIXML error trước
         errors = re.findall(r'<S S="Error">(.*?)</S>', err, re.DOTALL)
-        error_msg = ' '.join(errors).replace('_x000D__x000A_', ' ').strip()[:200] if errors else f"exit={exitcode}"
+        if errors:
+            error_msg = ' '.join(errors).replace('_x000D__x000A_', ' ').strip()[:300]
+        else:
+            # Fallback: dùng stdout (vì catch { Write-Host } ra stdout)
+            error_msg = (out.strip() or err.strip() or f"exit={exitcode}")[:300]
         write_log(session['user'], 'ADD_TO_GROUP', target=username,
                   detail=f"group={group} (ERROR: {error_msg})")
         return jsonify({"status": "error", "message": f"Lỗi AD: {error_msg}"})
@@ -903,12 +968,20 @@ def api_revoke_license_direct():
         conn.close()
     return jsonify({"status": "error", "message": "Thu hồi thất bại"})
 
-# Chạy init_db() ở module level — đảm bảo luôn được gọi dù
-# khởi động bằng Gunicorn, Flask dev server, hay bất kỳ WSGI nào.
-try:
-    init_db()
-except Exception as _e:
-    print(f"[startup] init_db warning: {_e}")
+# Chạy init_db() ở module level với retry — đảm bảo chạy được dù
+# PostgreSQL container chưa sẵn sàng ngay khi Flask khởi động.
+import time as _time
+for _attempt in range(10):
+    try:
+        init_db()
+        print(f"[startup] init_db OK (attempt {_attempt + 1})")
+        break
+    except Exception as _e:
+        print(f"[startup] init_db attempt {_attempt + 1}/10 failed: {_e}")
+        if _attempt < 9:
+            _time.sleep(3)
+        else:
+            print("[startup] init_db gave up after 10 attempts — DB may be unavailable")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

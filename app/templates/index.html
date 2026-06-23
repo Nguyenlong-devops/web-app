@@ -210,45 +210,101 @@
         <div id="create-user-panel" class="content-card action-panel hidden">
             <div class="card-header">
                 <div class="card-title-block">
-                    <div class="card-title">Tạo User Active Directory</div>
-                    <div class="card-subtitle">Tạo tài khoản mới và gán Group ngay khi khởi tạo</div>
+                    <div class="card-title">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+                        Tạo User Active Directory
+                    </div>
+                    <div class="card-subtitle">Tạo tài khoản mới trong domain</div>
                 </div>
                 <button class="btn btn-secondary btn-sm" onclick="closeAllPanels()">✕ Đóng</button>
             </div>
-            <div class="card-body">
+            <div class="card-body" style="padding:0;">
                 <form action="/create-user" method="POST" onsubmit="showLoading()">
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label>SamAccountName</label>
-                            <input type="text" name="sam_account_name" placeholder="vd: longnh" required>
+
+                    <!-- Step 1: Thông tin cơ bản -->
+                    <div style="padding:20px 24px;border-bottom:1px solid var(--border-light);">
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+                            <div style="width:24px;height:24px;border-radius:50%;background:var(--azure);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">1</div>
+                            <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-soft);">Thông Tin Tài Khoản</span>
                         </div>
-                        <div class="form-group">
-                            <label>Họ và Tên</label>
-                            <input type="text" name="full_name" placeholder="Nguyễn Văn Long" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Mật Khẩu Khởi Tạo</label>
-                            <input type="text" name="password" placeholder="Để trống → dùng mặc định">
-                        </div>
-                        <div class="form-group">
-                            <label>OU DN</label>
-                            <input type="text" name="ou_dn" value="OU=Users,DC=pv,DC=local" required>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+                            <div class="form-group">
+                                <label>Username <span style="color:var(--danger);">*</span></label>
+                                <input type="text" name="sam_account_name" placeholder="vd: longnh" required
+                                    style="font-family:monospace;font-weight:600;letter-spacing:.03em;">
+                                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Không dấu, không khoảng trắng</div>
+                            </div>
+                            <div class="form-group">
+                                <label>Họ và Tên <span style="color:var(--danger);">*</span></label>
+                                <input type="text" name="full_name" placeholder="vd: Nguyễn Văn Long" required>
+                                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Tên hiển thị trong hệ thống</div>
+                            </div>
+                            <div class="form-group">
+                                <label>Mật Khẩu</label>
+                                <input type="password" name="password" placeholder="Để trống → dùng mặc định" autocomplete="new-password">
+                                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Tối thiểu 8 ký tự, có chữ hoa + số</div>
+                            </div>
                         </div>
                     </div>
-                    <div class="form-group" style="margin-top:12px;">
-                        <label>Gán Group (Ctrl+Click chọn nhiều)</label>
-                        <select name="group_ids[]" multiple>
+
+                    <!-- Step 2: Vị trí OU -->
+                    <div style="padding:20px 24px;border-bottom:1px solid var(--border-light);">
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+                            <div style="width:24px;height:24px;border-radius:50%;background:var(--azure);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">2</div>
+                            <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-soft);">Vị Trí Trong Active Directory</span>
+                        </div>
+                        <div class="form-group" style="max-width:480px;">
+                            <label>Organizational Unit (OU) <span style="color:var(--danger);">*</span></label>
+                            <select name="ou_dn" id="ou_dn_select" required
+                                style="height:36px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                                <option value="">Đang tải danh sách OU...</option>
+                            </select>
+                            <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">User mới sẽ được tạo trong OU này</div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Gán Group bằng checkbox -->
+                    <div style="padding:20px 24px;border-bottom:1px solid var(--border-light);">
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+                            <div style="width:24px;height:24px;border-radius:50%;background:var(--azure);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">3</div>
+                            <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-soft);">Gán Group</span>
+                            <span style="font-size:11px;color:var(--text-muted);font-weight:400;">(tuỳ chọn)</span>
+                        </div>
+                        <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px;margin-left:34px;">Chọn các group muốn gán ngay khi tạo user</div>
+
+                        <!-- Search filter -->
+                        <div style="margin-left:34px;margin-bottom:10px;">
+                            <input type="text" id="cu_group_filter" placeholder="🔍 Tìm group..."
+                                oninput="filterCreateUserGroups(this.value)"
+                                style="width:240px;height:30px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:12px;outline:none;">
+                        </div>
+
+                        <!-- Checkbox grid -->
+                        <div id="cu_group_list" style="margin-left:34px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px;max-height:200px;overflow-y:auto;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--r-md);">
                             {% for g in ad_groups %}
-                            <option value="{{ g.Name }}">{{ g.Name }}</option>
+                            <label style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:4px;cursor:pointer;font-size:13px;color:var(--text);transition:background .1s;" onmouseover="this.style.background='var(--azure-light)'" onmouseout="this.style.background='transparent'">
+                                <input type="checkbox" name="group_ids[]" value="{{ g.Name }}"
+                                    style="width:14px;height:14px;accent-color:var(--azure);cursor:pointer;flex-shrink:0;">
+                                {{ g.Name }}
+                            </label>
                             {% endfor %}
-                        </select>
+                        </div>
                     </div>
-                    <div class="form-actions">
-                        <button class="btn btn-primary" type="submit">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                            Tạo User
-                        </button>
+
+                    <!-- Footer actions -->
+                    <div style="padding:14px 24px;display:flex;align-items:center;justify-content:space-between;background:var(--bg-secondary);border-radius:0 0 var(--r-lg) var(--r-lg);">
+                        <div style="font-size:12px;color:var(--text-muted);">
+                            <span style="color:var(--danger);">*</span> Trường bắt buộc
+                        </div>
+                        <div style="display:flex;gap:10px;">
+                            <button type="button" class="btn btn-secondary" onclick="closeAllPanels()">Hủy</button>
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                Tạo User
+                            </button>
+                        </div>
                     </div>
+
                 </form>
             </div>
         </div>
@@ -346,7 +402,7 @@
                 <div class="card-actions">
                     <input type="text" id="userSearchInput" class="search-box" placeholder="Tìm user..." onkeyup="filterUserTable()">
                     {% if session.get('is_admin') %}
-                    <button class="btn btn-primary btn-sm" onclick="openPanel('create-user-panel', null)">+ Tạo User</button>
+                    <button class="btn btn-primary btn-sm" onclick="openPanel('create-user-panel', null); loadOuSelect()">+ Tạo User</button>
                     {% endif %}
                 </div>
             </div>
@@ -707,14 +763,14 @@
             </div>
 
             <!-- Thêm group -->
-            <div>
+            <div style="margin-bottom:4px;">
                 <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Thêm vào Group</div>
-                <div style="display:flex;gap:8px;">
+                <div style="display:grid;grid-template-columns:1fr 80px;gap:8px;">
                     <select id="eu_group_select"
-                        style="flex:1;height:36px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;">
+                        style="height:38px;padding:0 8px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;min-width:0;width:100%;">
                     </select>
-                    <button id="eu_add_btn" onclick="euAddGroup()"
-                        style="height:36px;padding:0 18px;background:var(--azure);color:#fff;border:none;border-radius:4px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap;">
+                    <button type="button" id="eu_add_btn" onclick="euAddGroup()"
+                        style="height:38px;background:#0078d4;color:#ffffff;border:none;border-radius:4px;font-weight:700;font-size:12px;cursor:pointer;padding:0;width:80px;">
                         + Thêm
                     </button>
                 </div>
@@ -726,8 +782,8 @@
         </div>
 
         <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="closeUserModal()">Đóng</button>
-            <button class="btn btn-primary" onclick="euSaveStatus()">💾 Lưu Trạng Thái</button>
+            <button type="button" class="btn btn-secondary" onclick="closeUserModal()">Đóng</button>
+            <button type="button" class="btn btn-primary" onclick="euSaveStatus()">💾 Lưu Trạng Thái</button>
         </div>
     </div>
 </div>
@@ -788,6 +844,44 @@ function showSection(id, navBtn) {
     closeAllPanels();
 }
 
+// ─────────────────────── CREATE USER GROUP FILTER ───────────────────────
+function filterCreateUserGroups(q) {
+    const labels = document.querySelectorAll('#cu_group_list label');
+    const qLower = q.toLowerCase();
+    labels.forEach(lbl => {
+        const name = lbl.textContent.trim().toLowerCase();
+        lbl.style.display = name.includes(qLower) ? '' : 'none';
+    });
+}
+
+// ─────────────────────── LOAD OUs ───────────────────────
+function loadOuSelect() {
+    const sel = document.getElementById('ou_dn_select');
+    if (!sel) return;
+    fetch('/api/ous')
+        .then(r => r.json())
+        .then(data => {
+            sel.innerHTML = '';
+            if (!data.ous || !data.ous.length) {
+                sel.innerHTML = '<option value="OU=Users,DC=pv,DC=local">OU=Users,DC=pv,DC=local (default)</option>';
+                return;
+            }
+            data.ous.forEach(ou => {
+                const opt = document.createElement('option');
+                opt.value = ou.dn;
+                // Hiển thị tên OU và path rút gọn
+                const parts = ou.dn.split(',');
+                const depth = parts.filter(p => p.startsWith('OU=')).length;
+                const indent = '  '.repeat(Math.max(0, depth - 1));
+                opt.textContent = indent + ou.name + '  (' + ou.dn + ')';
+                sel.appendChild(opt);
+            });
+        })
+        .catch(() => {
+            if (sel) sel.innerHTML = '<option value="OU=Users,DC=pv,DC=local">OU=Users,DC=pv,DC=local</option>';
+        });
+}
+
 // ─────────────────────── PANELS ───────────────────────
 function openPanel(id, navBtn) {
     if (navBtn) {
@@ -802,6 +896,7 @@ function openPanel(id, navBtn) {
     if (!el) return;
     el.classList.remove('hidden');
     setTimeout(() => el.scrollIntoView({ behavior:'smooth', block:'start' }), 80);
+    if (id === 'create-user-panel') loadOuSelect();
 }
 
 function closeAllPanels() {
