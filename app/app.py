@@ -435,7 +435,7 @@ def change_password():
             except Exception as e:
                 message = f"Lỗi hệ thống: {str(e)}"
                 status  = "danger"
-    return render_template('change_password.html', message=message, status=status)
+    return render_template('change_password.html', message=message, status=status, domain_info=cfg)
 
 # ─────────────────────────────────────────────
 #  Dashboard
