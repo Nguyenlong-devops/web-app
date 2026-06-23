@@ -204,8 +204,8 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
             f"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded_cmd}"
         )
         stdin, stdout, stderr = ssh.exec_command(full_command)
-        out      = stdout.read().decode('utf-8', errors='ignore')
-        err      = stderr.read().decode('utf-8', errors='ignore')
+        out      = stdout.read().decode('utf-8', errors='replace')
+        err      = stderr.read().decode('utf-8', errors='replace')
         exitcode = stdout.channel.recv_exit_status()  # 0 = success
         if return_stderr:
             return out, err, exitcode
