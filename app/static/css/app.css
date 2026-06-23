@@ -533,6 +533,7 @@ input, select, textarea { font-family: inherit; }
     box-shadow: var(--shadow-sm);
     overflow: hidden;
     transition: box-shadow var(--ease);
+    margin-top: 28px;
     margin-bottom: 28px;
 }
 
