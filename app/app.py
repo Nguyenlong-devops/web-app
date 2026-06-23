@@ -554,18 +554,34 @@ def create_user():
 @admin_required
 def edit_user_ad():
     cfg = get_active_domain_config()
-    username   = request.form.get('edit_username')
+    old_username = request.form.get('edit_old_username')
+    new_username = request.form.get('edit_username')
     displayname = request.form.get('edit_displayname', '').strip()
     password   = request.form.get('edit_password')
     status     = request.form.get('edit_status')
     add_groups = [g.strip() for g in request.form.getlist('edit_add_groups') if g.strip()]
 
     details = []
+    
+    # Use old_username for AD operations if present, otherwise use new_username
+    ad_identity = old_username if old_username else new_username
+
+    # Rename user if username changed
+    if old_username and new_username and old_username != new_username:
+        out, err, ec = run_powershell_ssh(
+            f"Import-Module ActiveDirectory; "
+            f"try {{ Rename-ADObject -Identity (Get-ADUser -Filter \"SamAccountName -eq '{old_username}'\").DistinguishedName -NewName '{new_username}'; "
+            f"Set-ADUser -Identity '{new_username}' -SamAccountName '{new_username}'; exit 0 }} "
+            f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
+            cfg, return_stderr=True
+        )
+        details.append(f"username_rename={old_username}->{new_username} ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
+        ad_identity = new_username
 
     if displayname:
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; "
-            f"try {{ Set-ADUser -Identity '{username}' -DisplayName '{displayname}'; exit 0 }} "
+            f"try {{ Set-ADUser -Identity '{ad_identity}' -DisplayName '{displayname}'; exit 0 }} "
             f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
             cfg, return_stderr=True
         )
@@ -574,7 +590,7 @@ def edit_user_ad():
     if password and password.strip():
         out, err, ec = run_powershell_ssh(
             "Import-Module ActiveDirectory; "
-            f"try {{ Set-ADAccountPassword -Identity '{username}' "
+            f"try {{ Set-ADAccountPassword -Identity '{ad_identity}' "
             f"-NewPassword (ConvertTo-SecureString '{password}' -AsPlainText -Force) -Reset $true; exit 0 }} "
             f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
             cfg, return_stderr=True
@@ -584,7 +600,7 @@ def edit_user_ad():
     if status == "true":
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; "
-            f"try {{ Enable-ADAccount -Identity '{username}'; exit 0 }} "
+            f"try {{ Enable-ADAccount -Identity '{ad_identity}'; exit 0 }} "
             f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
             cfg, return_stderr=True
         )
@@ -592,7 +608,7 @@ def edit_user_ad():
     else:
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; "
-            f"try {{ Disable-ADAccount -Identity '{username}'; exit 0 }} "
+            f"try {{ Disable-ADAccount -Identity '{ad_identity}'; exit 0 }} "
             f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
             cfg, return_stderr=True
         )
@@ -601,13 +617,13 @@ def edit_user_ad():
     for g in add_groups:
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; "
-            f"try {{ Add-ADGroupMember -Identity '{g}' -Members '{username}' -Confirm:$false; exit 0 }} "
+            f"try {{ Add-ADGroupMember -Identity '{g}' -Members '{ad_identity}' -Confirm:$false; exit 0 }} "
             f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
             cfg, return_stderr=True
         )
         details.append(f"add_group={g} ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
 
-    write_log(session['user'], 'EDIT_USER', target=username, detail='; '.join(details))
+    write_log(session['user'], 'EDIT_USER', target=new_username if new_username else old_username, detail='; '.join(details))
     return redirect(url_for('index'))
 
 # ─────────────────────────────────────────────

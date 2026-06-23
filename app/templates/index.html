@@ -727,7 +727,8 @@
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
                 <div>
                     <div class="eu-label">Username</div>
-                    <div id="eu_sam" class="eu-value eu-mono"></div>
+                    <input type="text" id="eu_edit_username" placeholder="Username"
+                        style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text);font-size:14px;font-family:monospace;font-weight:700;">
                 </div>
                 <div>
                     <div class="eu-label">Display Name</div>
@@ -1071,7 +1072,7 @@ function openUserEditModal(btn) {
     const isActive = btn.dataset.enabled === 'true';
     const displayName = btn.dataset.name || '';
 
-    document.getElementById('eu_sam').textContent  = _euSam;
+    document.getElementById('eu_edit_username').value = _euSam;
     document.getElementById('eu_edit_displayname').value = displayName;
     document.getElementById('eu_edit_password').value = '';
 
@@ -1201,9 +1202,16 @@ function euRemoveGroup(group) {
 
 // ── Lưu toàn bộ thay đổi ──
 function euSaveAll() {
+    const oldUsername = _euSam;
+    const newUsername = document.getElementById('eu_edit_username').value.trim();
     const password = document.getElementById('eu_edit_password').value;
     const displayname = document.getElementById('eu_edit_displayname').value;
     const status = document.getElementById('eu_status').value;
+
+    if (!newUsername) {
+        showToast('Vui lòng nhập Username', 'warning');
+        return;
+    }
 
     if (!displayname.trim()) {
         showToast('Vui lòng nhập Display Name', 'warning');
@@ -1216,7 +1224,8 @@ function euSaveAll() {
     form.action = '/edit-user-ad';
 
     const fields = {
-        'edit_username': _euSam,
+        'edit_old_username': oldUsername,
+        'edit_username': newUsername,
         'edit_displayname': displayname,
         'edit_password': password,
         'edit_status': status
