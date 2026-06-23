@@ -533,6 +533,7 @@ input, select, textarea { font-family: inherit; }
     box-shadow: var(--shadow-sm);
     overflow: hidden;
     transition: box-shadow var(--ease);
+    margin-bottom: 28px;
 }
 
 .content-card:hover {
