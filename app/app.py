@@ -555,11 +555,21 @@ def create_user():
 def edit_user_ad():
     cfg = get_active_domain_config()
     username   = request.form.get('edit_username')
+    displayname = request.form.get('edit_displayname', '').strip()
     password   = request.form.get('edit_password')
     status     = request.form.get('edit_status')
     add_groups = [g.strip() for g in request.form.getlist('edit_add_groups') if g.strip()]
 
     details = []
+
+    if displayname:
+        out, err, ec = run_powershell_ssh(
+            f"Import-Module ActiveDirectory; "
+            f"try {{ Set-ADUser -Identity '{username}' -DisplayName '{displayname}'; exit 0 }} "
+            f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
+            cfg, return_stderr=True
+        )
+        details.append(f"displayname={displayname} ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
 
     if password and password.strip():
         out, err, ec = run_powershell_ssh(

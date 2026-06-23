@@ -731,8 +731,17 @@
                 </div>
                 <div>
                     <div class="eu-label">Display Name</div>
-                    <div id="eu_name" class="eu-value"></div>
+                    <input type="text" id="eu_edit_displayname" placeholder="Display Name"
+                        style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text);font-size:14px;">
                 </div>
+            </div>
+
+            <!-- Password -->
+            <div style="margin-bottom:16px;">
+                <div class="eu-label" style="margin-bottom:8px;">Mật Khẩu Mới</div>
+                <input type="password" id="eu_edit_password" placeholder="Để trống nếu không đổi"
+                    style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text);font-size:14px;">
+                <div style="font-size:11px;color:var(--text-soft);margin-top:6px;">Để trống nếu không muốn đổi mật khẩu</div>
             </div>
 
             <!-- Trạng thái -->
@@ -777,13 +786,13 @@
             </div>
 
             <div style="margin-top:14px;padding:10px 12px;background:var(--info-bg);border-radius:6px;font-size:12px;color:var(--info);">
-                ℹ Thay đổi Group áp dụng ngay lên AD. Bấm "Lưu" để cập nhật Trạng Thái.
+                ℹ Thay đổi Group áp dụng ngay lên AD. Bấm "Lưu" để cập nhật thông tin khác.
             </div>
         </div>
 
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeUserModal()">Đóng</button>
-            <button type="button" class="btn btn-primary" onclick="euSaveStatus()">💾 Lưu Trạng Thái</button>
+            <button type="button" class="btn btn-primary" onclick="euSaveAll()">💾 Lưu Thay Đổi</button>
         </div>
     </div>
 </div>
@@ -1060,9 +1069,11 @@ function openUserEditModal(btn) {
     _euGroups = (btn.dataset.groups || '').split(',').map(g => g.trim()).filter(Boolean);
 
     const isActive = btn.dataset.enabled === 'true';
+    const displayName = btn.dataset.name || '';
 
     document.getElementById('eu_sam').textContent  = _euSam;
-    document.getElementById('eu_name').textContent = btn.dataset.name || '';
+    document.getElementById('eu_edit_displayname').value = displayName;
+    document.getElementById('eu_edit_password').value = '';
 
     euSetStatus(isActive);
     euRenderGroups();
@@ -1188,24 +1199,44 @@ function euRemoveGroup(group) {
     .catch(() => showToast('Lỗi kết nối', 'danger'));
 }
 
-// ── Lưu trạng thái ──
-function euSaveStatus() {
+// ── Lưu toàn bộ thay đổi ──
+function euSaveAll() {
+    const password = document.getElementById('eu_edit_password').value;
+    const displayname = document.getElementById('eu_edit_displayname').value;
+    const status = document.getElementById('eu_status').value;
+
+    if (!displayname.trim()) {
+        showToast('Vui lòng nhập Display Name', 'warning');
+        return;
+    }
+
     showLoading();
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/edit-user-ad';
 
-    const f1 = document.createElement('input');
-    f1.type = 'hidden'; f1.name = 'edit_username'; f1.value = _euSam;
-    form.appendChild(f1);
+    const fields = {
+        'edit_username': _euSam,
+        'edit_displayname': displayname,
+        'edit_password': password,
+        'edit_status': status
+    };
 
-    const f2 = document.createElement('input');
-    f2.type = 'hidden'; f2.name = 'edit_status';
-    f2.value = document.getElementById('eu_status').value;
-    form.appendChild(f2);
+    for (const [name, value] of Object.entries(fields)) {
+        const inp = document.createElement('input');
+        inp.type = 'hidden';
+        inp.name = name;
+        inp.value = value;
+        form.appendChild(inp);
+    }
 
     document.body.appendChild(form);
     form.submit();
+}
+
+// ── Lưu trạng thái (deprecated - keep for backward compatibility) ──
+function euSaveStatus() {
+    euSaveAll();
 }
 
 // ─────────────────────── DISCONNECT DOMAIN ───────────────────────
