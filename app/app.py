@@ -468,7 +468,14 @@ def index():
         except Exception as e:
             print(f"JSON User Error: {e}")
 
-    ps_group_cmd = "Get-ADGroup -Filter * | Select-Object SamAccountName, Name, DistinguishedName | ConvertTo-Json -Compress"
+    # Lọc bỏ group hệ thống (CN=Builtin và CN=Users) - chỉ lấy group do admin tạo
+    ps_group_cmd = (
+        "Get-ADGroup -Filter * -Properties DistinguishedName | "
+        "Where-Object { $_.DistinguishedName -notmatch ',CN=Builtin,' -and "
+        "$_.DistinguishedName -notmatch ',CN=Users,DC=' } | "
+        "Select-Object SamAccountName, Name, DistinguishedName | "
+        "Sort-Object Name | ConvertTo-Json -Compress"
+    )
     raw_groups   = run_powershell_ssh(ps_group_cmd, cfg)
     if raw_groups.strip():
         try:
