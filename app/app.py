@@ -204,8 +204,8 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
             f"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded_cmd}"
         )
         stdin, stdout, stderr = ssh.exec_command(full_command)
-        out      = stdout.read().decode('utf-8', errors='replace')
-        err      = stderr.read().decode('utf-8', errors='replace')
+        out      = stdout.read().decode('utf-8', errors='ignore')
+        err      = stderr.read().decode('utf-8', errors='ignore')
         exitcode = stdout.channel.recv_exit_status()  # 0 = success
         if return_stderr:
             return out, err, exitcode
@@ -319,7 +319,13 @@ def connect_domain():
                 else:
                     error = "Không thể đăng nhập với tài khoản đã nhập. Vui lòng kiểm tra lại username/password."
         except Exception as e:
-            error = f"Lỗi kết nối: {str(e)}"
+            err_str = str(e).lower()
+            if 'no route to host' in err_str or 'errno 113' in err_str or 'timed out' in err_str or 'connection refused' in err_str:
+                error = f"Không tìm thấy Active Directory tại địa chỉ '{ldap_host}'. Vui lòng kiểm tra lại IP/Hostname và đảm bảo máy chủ AD đang hoạt động."
+            elif 'invalid credentials' in err_str or 'ldap_bind' in err_str:
+                error = "Tài khoản hoặc mật khẩu không chính xác."
+            else:
+                error = f"Không thể kết nối tới Active Directory: {str(e)}"
 
     return render_template('connect_domain.html', error=error, cfg=cfg)
 
@@ -435,7 +441,7 @@ def change_password():
             except Exception as e:
                 message = f"Lỗi hệ thống: {str(e)}"
                 status  = "danger"
-    return render_template('change_password.html', message=message, status=status, domain_info=cfg)
+    return render_template('change_password.html', message=message, status=status)
 
 # ─────────────────────────────────────────────
 #  Dashboard
@@ -553,77 +559,49 @@ def create_user():
 @domain_required
 @admin_required
 def edit_user_ad():
-    cfg = get_active_domain_config()
-    old_username = request.form.get('edit_old_username')
-    new_username = request.form.get('edit_username')
-    displayname = request.form.get('edit_displayname', '').strip()
-    password   = request.form.get('edit_password')
-    status     = request.form.get('edit_status')
-    add_groups = [g.strip() for g in request.form.getlist('edit_add_groups') if g.strip()]
+    cfg          = get_active_domain_config()
+    username     = request.form.get('edit_username', '').strip()
+    new_sam      = request.form.get('edit_new_sam', '').strip()
+    display_name = request.form.get('edit_display_name', '').strip()
+    password     = request.form.get('edit_password', '').strip()
+    status       = request.form.get('edit_status', 'true')
+    details      = []
 
-    details = []
-    
-    # Use old_username for AD operations if present, otherwise use new_username
-    ad_identity = old_username if old_username else new_username
-
-    # Rename user if username changed
-    if old_username and new_username and old_username != new_username:
+    if display_name:
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; "
-            f"try {{ Rename-ADObject -Identity (Get-ADUser -Filter \"SamAccountName -eq '{old_username}'\").DistinguishedName -NewName '{new_username}'; "
-            f"Set-ADUser -Identity '{new_username}' -SamAccountName '{new_username}'; exit 0 }} "
-            f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
-            cfg, return_stderr=True
-        )
-        details.append(f"username_rename={old_username}->{new_username} ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
-        ad_identity = new_username
+            f"Import-Module ActiveDirectory; Set-ADUser -Identity '{username}' -DisplayName '{display_name}' -GivenName '{display_name}'",
+            cfg, return_stderr=True)
+        details.append(f"display_name exit={ec}")
 
-    if displayname:
+    if password:
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; "
-            f"try {{ Set-ADUser -Identity '{ad_identity}' -DisplayName '{displayname}'; exit 0 }} "
-            f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
-            cfg, return_stderr=True
-        )
-        details.append(f"displayname={displayname} ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
-
-    if password and password.strip():
-        out, err, ec = run_powershell_ssh(
-            "Import-Module ActiveDirectory; "
-            f"try {{ Set-ADAccountPassword -Identity '{ad_identity}' "
-            f"-NewPassword (ConvertTo-SecureString '{password}' -AsPlainText -Force) -Reset $true; exit 0 }} "
-            f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
-            cfg, return_stderr=True
-        )
-        details.append(f"password_reset ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
+            f"Import-Module ActiveDirectory; Set-ADAccountPassword -Identity '{username}' "
+            f"-NewPassword (ConvertTo-SecureString '{password}' -AsPlainText -Force) -Reset $true",
+            cfg, return_stderr=True)
+        details.append(f"password_reset exit={ec}")
 
     if status == "true":
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; "
-            f"try {{ Enable-ADAccount -Identity '{ad_identity}'; exit 0 }} "
-            f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
-            cfg, return_stderr=True
-        )
-        details.append(f"enabled=true ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
+            f"Import-Module ActiveDirectory; Enable-ADAccount -Identity '{username}'",
+            cfg, return_stderr=True)
+        details.append(f"enabled=true exit={ec}")
     else:
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; "
-            f"try {{ Disable-ADAccount -Identity '{ad_identity}'; exit 0 }} "
-            f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
-            cfg, return_stderr=True
-        )
-        details.append(f"enabled=false ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
+            f"Import-Module ActiveDirectory; Disable-ADAccount -Identity '{username}'",
+            cfg, return_stderr=True)
+        details.append(f"enabled=false exit={ec}")
 
-    for g in add_groups:
+    if new_sam and new_sam != username:
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; "
-            f"try {{ Add-ADGroupMember -Identity '{g}' -Members '{ad_identity}' -Confirm:$false; exit 0 }} "
-            f"catch {{ Write-Host $_.Exception.Message; exit 1 }}",
-            cfg, return_stderr=True
-        )
-        details.append(f"add_group={g} ({'OK' if ec==0 else 'ERROR: '+(out.strip() or err.strip())[:100]})")
+            f"$u = Get-ADUser '{username}'; "
+            f"Rename-ADObject -Identity $u.DistinguishedName -NewName '{new_sam}'; "
+            f"Set-ADUser -Identity '{new_sam}' -SamAccountName '{new_sam}' "
+            f"-UserPrincipalName '{new_sam}{cfg['domain_suffix']}'",
+            cfg, return_stderr=True)
+        details.append(f"rename={username}->{new_sam} exit={ec}")
 
-    write_log(session['user'], 'EDIT_USER', target=new_username if new_username else old_username, detail='; '.join(details))
+    write_log(session['user'], 'EDIT_USER', target=username, detail='; '.join(details))
     return redirect(url_for('index'))
 
 # ─────────────────────────────────────────────
@@ -633,6 +611,12 @@ def edit_user_ad():
 @domain_required
 @admin_required
 def save_software_inventory():
+    # Xác thực mật khẩu admin trước khi lưu
+    admin_pass = request.form.get('admin_pass', '').strip()
+    cfg        = get_active_domain_config()
+    if not admin_pass or admin_pass != cfg['ssh_pass']:
+        return "<script>alert('Mật khẩu Administrator không chính xác!');history.back();</script>", 403
+
     row_id        = request.form.get('row_id')
     software_key  = request.form.get('software_key')
     software_name = request.form.get('software_name')
@@ -812,27 +796,63 @@ def api_user_licenses(username):
     return jsonify({"licenses": [{"key": r[0], "quantity": r[1]} for r in rows]})
 
 # ─────────────────────────────────────────────
-#  API — get all AD groups
+#  Export Users CSV
+# ─────────────────────────────────────────────
+@app.route('/export-users-csv')
+@domain_required
+@admin_required
+def export_users_csv():
+    cfg = get_active_domain_config()
+    ps_cmd = (
+        "Get-ADUser -Filter * -Properties MemberOf,Enabled | "
+        "Select-Object SamAccountName,Name,Enabled,"
+        "@{Name='Groups';Expression={($_.MemberOf | ForEach-Object {($_ -split ',')[0] -replace 'CN=',''}) -join ';'}} | "
+        "ConvertTo-Json -Compress"
+    )
+    raw = run_powershell_ssh(ps_cmd, cfg)
+    users = []
+    try:
+        parsed = json.loads(raw)
+        users = [parsed] if isinstance(parsed, dict) else parsed
+    except Exception:
+        pass
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['Username', 'Full Name', 'Status', 'Groups'])
+    for u in users:
+        cw.writerow([u.get('SamAccountName',''), u.get('Name',''),
+                     'Active' if u.get('Enabled') else 'Disabled', u.get('Groups','')])
+    write_log(session['user'], 'EXPORT_CSV', detail='Exported AD users CSV')
+    output = make_response(si.getvalue())
+    output.headers["Content-Disposition"] = "attachment; filename=ad_users.csv"
+    output.headers["Content-type"] = "text/csv; charset=utf-8-sig"
+    return output
+
+# ─────────────────────────────────────────────
+#  API — get AD groups (custom only)
 # ─────────────────────────────────────────────
 @app.route('/api/groups')
 @domain_required
 @login_required
 def api_get_groups():
     cfg = get_active_domain_config()
-    ps_cmd = "Get-ADGroup -Filter * | Select-Object -ExpandProperty Name | Sort-Object | ConvertTo-Json -Compress"
-    out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    ps_cmd = (
+        "Get-ADGroup -Filter * -Properties DistinguishedName | "
+        "Where-Object { $_.DistinguishedName -notmatch 'CN=Builtin' -and "
+        "$_.DistinguishedName -notmatch ',CN=Users,' } | "
+        "Select-Object -ExpandProperty Name | Sort-Object | ConvertTo-Json -Compress"
+    )
+    out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
     try:
         groups = json.loads(out.strip())
-        if isinstance(groups, str):
-            groups = [groups]
-        elif not isinstance(groups, list):
-            groups = []
+        if isinstance(groups, str): groups = [groups]
+        elif not isinstance(groups, list): groups = []
     except Exception:
         groups = []
     return jsonify({"groups": groups})
 
 # ─────────────────────────────────────────────
-#  API — get all AD OUs
+#  API — get all OUs
 # ─────────────────────────────────────────────
 @app.route('/api/ous')
 @domain_required
@@ -844,14 +864,11 @@ def api_get_ous():
         "Select-Object Name,DistinguishedName | "
         "Sort-Object DistinguishedName | ConvertTo-Json -Compress"
     )
-    out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
     try:
         ous = json.loads(out.strip())
-        if isinstance(ous, dict):
-            ous = [ous]
-        elif not isinstance(ous, list):
-            ous = []
-        # Format: [{name, dn}]
+        if isinstance(ous, dict): ous = [ous]
+        elif not isinstance(ous, list): ous = []
         result = [{"name": o.get("Name",""), "dn": o.get("DistinguishedName","")} for o in ous if o.get("DistinguishedName")]
     except Exception:
         result = []
@@ -868,27 +885,9 @@ def api_remove_user_group():
     data     = request.get_json()
     username = data.get('username')
     group    = data.get('group')
-    ps_cmd = (
-        f"Import-Module ActiveDirectory; "
-        f"try {{ "
-        f"Remove-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:$false; "
-        f"Write-Host 'OK'; exit 0 "
-        f"}} catch {{ Write-Host $_.Exception.Message; exit 1 }}"
-    )
+    ps_cmd = f"Import-Module ActiveDirectory; Remove-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:0"
     out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
-
-    if exitcode != 0:
-        import re
-        errors = re.findall(r'<S S="Error">(.*?)</S>', err, re.DOTALL)
-        if errors:
-            error_msg = ' '.join(errors).replace('_x000D__x000A_', ' ').strip()[:300]
-        else:
-            error_msg = (out.strip() or err.strip() or f"exit={exitcode}")[:300]
-        write_log(session['user'], 'REMOVE_FROM_GROUP', target=username,
-                  detail=f"group={group} (ERROR: {error_msg})")
-        return jsonify({"status": "error", "message": f"Lỗi AD: {error_msg}"})
-
-    write_log(session['user'], 'REMOVE_FROM_GROUP', target=username, detail=f"group={group} (OK)")
+    write_log(session['user'], 'REMOVE_FROM_GROUP', target=username, detail=f"group={group} exit={exitcode}")
     return jsonify({"status": "success"})
 
 # ─────────────────────────────────────────────
@@ -927,29 +926,9 @@ def api_add_user_group():
         return jsonify({"status": "error", "message": "Vui lòng chọn group."})
 
     group = group.strip()
-    ps_cmd = (
-        f"Import-Module ActiveDirectory; "
-        f"try {{ "
-        f"Add-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:$false; "
-        f"Write-Host 'OK'; exit 0 "
-        f"}} catch {{ Write-Host $_.Exception.Message; exit 1 }}"
-    )
+    ps_cmd = f"Import-Module ActiveDirectory; Add-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:0"
     out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
-
-    if exitcode != 0:
-        import re
-        # Thử parse CLIXML error trước
-        errors = re.findall(r'<S S="Error">(.*?)</S>', err, re.DOTALL)
-        if errors:
-            error_msg = ' '.join(errors).replace('_x000D__x000A_', ' ').strip()[:300]
-        else:
-            # Fallback: dùng stdout (vì catch { Write-Host } ra stdout)
-            error_msg = (out.strip() or err.strip() or f"exit={exitcode}")[:300]
-        write_log(session['user'], 'ADD_TO_GROUP', target=username,
-                  detail=f"group={group} (ERROR: {error_msg})")
-        return jsonify({"status": "error", "message": f"Lỗi AD: {error_msg}"})
-
-    write_log(session['user'], 'ADD_TO_GROUP', target=username, detail=f"group={group} (OK)")
+    write_log(session['user'], 'ADD_TO_GROUP', target=username, detail=f"group={group} exit={exitcode}")
     return jsonify({"status": "success", "group": group})
 
 # ─────────────────────────────────────────────

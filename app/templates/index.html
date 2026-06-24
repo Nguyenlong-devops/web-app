@@ -2,8 +2,9 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dashboard — PV Infrastructure Portal</title>
+<title>{{ domain_info.ldap_host if domain_info else "PV" }} — Infrastructure Portal</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
@@ -31,7 +32,7 @@
             </svg>
         </div>
         <div class="brand-text">
-            <h1>{{ domain_info.domain_suffix.lstrip('@').upper() + ' Automation' if domain_info else 'PV Automation' }}</h1>
+            <h1>{{ domain_info.domain_suffix.lstrip("@").upper() if domain_info else "PV" }}</h1>
             <p>Infrastructure Portal</p>
         </div>
     </div>
@@ -124,16 +125,6 @@
         </div>
         <div class="topbar-right">
             <button class="topbar-btn" onclick="toggleTheme()" id="themeBtn">🌙 Theme</button>
-            {% if session.get('is_admin') %}
-            <a href="/export-audit-csv" class="topbar-btn" style="text-decoration:none;">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                Export Audit
-            </a>
-            {% endif %}
-            <a href="/export-licenses-csv" class="topbar-btn" style="text-decoration:none;">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Export CSV
-            </a>
         </div>
     </div>
 
@@ -210,101 +201,45 @@
         <div id="create-user-panel" class="content-card action-panel hidden">
             <div class="card-header">
                 <div class="card-title-block">
-                    <div class="card-title">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
-                        Tạo User Active Directory
-                    </div>
-                    <div class="card-subtitle">Tạo tài khoản mới trong domain</div>
+                    <div class="card-title">Tạo User Active Directory</div>
+                    <div class="card-subtitle">Tạo tài khoản mới và gán Group ngay khi khởi tạo</div>
                 </div>
                 <button class="btn btn-secondary btn-sm" onclick="closeAllPanels()">✕ Đóng</button>
             </div>
-            <div class="card-body" style="padding:0;">
+            <div class="card-body">
                 <form action="/create-user" method="POST" onsubmit="showLoading()">
-
-                    <!-- Step 1: Thông tin cơ bản -->
-                    <div style="padding:20px 24px;border-bottom:1px solid var(--border-light);">
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-                            <div style="width:24px;height:24px;border-radius:50%;background:var(--azure);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">1</div>
-                            <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-soft);">Thông Tin Tài Khoản</span>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>SamAccountName</label>
+                            <input type="text" name="sam_account_name" placeholder="vd: longnh" required>
                         </div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
-                            <div class="form-group">
-                                <label>Username <span style="color:var(--danger);">*</span></label>
-                                <input type="text" name="sam_account_name" placeholder="vd: longnh" required
-                                    style="font-family:monospace;font-weight:600;letter-spacing:.03em;">
-                                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Không dấu, không khoảng trắng</div>
-                            </div>
-                            <div class="form-group">
-                                <label>Họ và Tên <span style="color:var(--danger);">*</span></label>
-                                <input type="text" name="full_name" placeholder="vd: Nguyễn Văn Long" required>
-                                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Tên hiển thị trong hệ thống</div>
-                            </div>
-                            <div class="form-group">
-                                <label>Mật Khẩu</label>
-                                <input type="password" name="password" placeholder="Để trống → dùng mặc định" autocomplete="new-password">
-                                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Tối thiểu 8 ký tự, có chữ hoa + số</div>
-                            </div>
+                        <div class="form-group">
+                            <label>Họ và Tên</label>
+                            <input type="text" name="full_name" placeholder="Nguyễn Văn Long" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Mật Khẩu Khởi Tạo</label>
+                            <input type="text" name="password" placeholder="Để trống → dùng mặc định">
+                        </div>
+                        <div class="form-group">
+                            <label>OU DN</label>
+                            <input type="text" name="ou_dn" value="OU=Users,DC=pv,DC=local" required>
                         </div>
                     </div>
-
-                    <!-- Step 2: Vị trí OU -->
-                    <div style="padding:20px 24px;border-bottom:1px solid var(--border-light);">
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-                            <div style="width:24px;height:24px;border-radius:50%;background:var(--azure);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">2</div>
-                            <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-soft);">Vị Trí Trong Active Directory</span>
-                        </div>
-                        <div class="form-group" style="max-width:480px;">
-                            <label>Organizational Unit (OU) <span style="color:var(--danger);">*</span></label>
-                            <select name="ou_dn" id="ou_dn_select" required
-                                style="height:36px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
-                                <option value="">Đang tải danh sách OU...</option>
-                            </select>
-                            <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">User mới sẽ được tạo trong OU này</div>
-                        </div>
-                    </div>
-
-                    <!-- Step 3: Gán Group bằng checkbox -->
-                    <div style="padding:20px 24px;border-bottom:1px solid var(--border-light);">
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
-                            <div style="width:24px;height:24px;border-radius:50%;background:var(--azure);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">3</div>
-                            <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-soft);">Gán Group</span>
-                            <span style="font-size:11px;color:var(--text-muted);font-weight:400;">(tuỳ chọn)</span>
-                        </div>
-                        <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px;margin-left:34px;">Chọn các group muốn gán ngay khi tạo user</div>
-
-                        <!-- Search filter -->
-                        <div style="margin-left:34px;margin-bottom:10px;">
-                            <input type="text" id="cu_group_filter" placeholder="🔍 Tìm group..."
-                                oninput="filterCreateUserGroups(this.value)"
-                                style="width:240px;height:30px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:12px;outline:none;">
-                        </div>
-
-                        <!-- Checkbox grid -->
-                        <div id="cu_group_list" style="margin-left:34px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px;max-height:200px;overflow-y:auto;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--r-md);">
+                    <div class="form-group" style="margin-top:12px;">
+                        <label>Gán Group (Ctrl+Click chọn nhiều)</label>
+                        <select name="group_ids[]" multiple>
                             {% for g in ad_groups %}
-                            <label style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:4px;cursor:pointer;font-size:13px;color:var(--text);transition:background .1s;" onmouseover="this.style.background='var(--azure-light)'" onmouseout="this.style.background='transparent'">
-                                <input type="checkbox" name="group_ids[]" value="{{ g.Name }}"
-                                    style="width:14px;height:14px;accent-color:var(--azure);cursor:pointer;flex-shrink:0;">
-                                {{ g.Name }}
-                            </label>
+                            <option value="{{ g.Name }}">{{ g.Name }}</option>
                             {% endfor %}
-                        </div>
+                        </select>
                     </div>
-
-                    <!-- Footer actions -->
-                    <div style="padding:14px 24px;display:flex;align-items:center;justify-content:space-between;background:var(--bg-secondary);border-radius:0 0 var(--r-lg) var(--r-lg);">
-                        <div style="font-size:12px;color:var(--text-muted);">
-                            <span style="color:var(--danger);">*</span> Trường bắt buộc
-                        </div>
-                        <div style="display:flex;gap:10px;">
-                            <button type="button" class="btn btn-secondary" onclick="closeAllPanels()">Hủy</button>
-                            <button type="submit" class="btn btn-primary btn-lg">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                                Tạo User
-                            </button>
-                        </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" type="submit">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Tạo User
+                        </button>
                     </div>
-
                 </form>
             </div>
         </div>
@@ -319,7 +254,7 @@
                 <button class="btn btn-secondary btn-sm" onclick="closeAllPanels()">✕ Đóng</button>
             </div>
             <div class="card-body">
-                <form action="/save-software-inventory" method="POST" onsubmit="showLoading()">
+                <form id="licenseInventoryForm" action="/save-software-inventory" method="POST" onsubmit="return confirmLicenseSave(event)">
                     <input type="hidden" id="form_row_id" name="row_id">
                     <div class="form-grid">
                         <div class="form-group">
@@ -334,6 +269,10 @@
                             <label>Tổng Số License</label>
                             <input type="number" id="form_total_licenses" name="total_licenses" min="1" placeholder="50" required>
                         </div>
+                    </div>
+                    <div class="form-group" style="margin-top:12px;">
+                        <label>Mật Khẩu Administrator <span style="color:var(--danger);">*</span></label>
+                        <input type="password" id="form_admin_pass" name="admin_pass" placeholder="Nhập mật khẩu để xác nhận" required>
                     </div>
                     <div class="form-actions">
                         <button id="submit-inventory-btn" type="submit" class="btn btn-primary">
@@ -393,15 +332,21 @@
         {% endif %}
 
         <!-- AD USERS TABLE -->
-        <div class="content-card">
+        <div class="content-card" style="margin-bottom:12px;">
             <div class="card-header">
                 <div class="card-title-block">
                     <div class="card-title">Active Directory Users</div>
-                    <div class="card-subtitle">Danh sách toàn bộ user trong Domain</div>
+                    <div class="card-subtitle">Tổng <strong>{{ ad_users|length }}</strong> user trong domain</div>
                 </div>
-                <div class="card-actions">
-                    <input type="text" id="userSearchInput" class="search-box" placeholder="Tìm user..." onkeyup="filterUserTable()">
+                <div class="card-actions" style="flex-wrap:wrap;gap:6px;">
+                    <input type="text" id="userSearchInput" class="search-box" placeholder="Tìm user..." oninput="filterUserTable()">
+                    <select id="userStatusFilter" onchange="filterUserTable()" style="height:30px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);font-size:12px;background:var(--card);color:var(--text);outline:none;">
+                        <option value="">Tất cả trạng thái</option>
+                        <option value="active">Active</option>
+                        <option value="disabled">Disabled</option>
+                    </select>
                     {% if session.get('is_admin') %}
+                    <a href="/export-users-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export</a>
                     <button class="btn btn-primary btn-sm" onclick="openPanel('create-user-panel', null); loadOuSelect()">+ Tạo User</button>
                     {% endif %}
                 </div>
@@ -410,42 +355,40 @@
                 <table class="modern-table" id="userTable">
                     <thead>
                         <tr>
-                            <th>Username</th>
-                            <th>Họ Tên</th>
-                            <th>Trạng Thái</th>
+                            <th onclick="sortTable('userTable',0)" style="cursor:pointer;user-select:none;">Username <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
+                            <th onclick="sortTable('userTable',1)" style="cursor:pointer;user-select:none;">Họ Tên <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
+                            <th onclick="sortTable('userTable',2)" style="cursor:pointer;user-select:none;">Trạng Thái <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
                             <th>Groups</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for u in ad_users %}
-                        <tr>
+                        <tr data-status="{{ 'active' if u.Enabled else 'disabled' }}">
                             <td><code>{{ u.SamAccountName }}</code></td>
                             <td><strong>{{ u.Name }}</strong></td>
                             <td>
                                 {% if u.Enabled %}
-                                <span class="badge badge-success">Active</span>
+                                <span class="badge badge-success">● Active</span>
                                 {% else %}
-                                <span class="badge badge-danger">Disabled</span>
+                                <span class="badge badge-danger">● Disabled</span>
                                 {% endif %}
                             </td>
-                            <td style="max-width:280px; color:var(--text-soft); font-size:12px;">
+                            <td style="max-width:260px;color:var(--text-soft);font-size:12px;">
                                 {% if u.Groups %}{{ u.Groups[:80] }}{% if u.Groups|length > 80 %}…{% endif %}
                                 {% else %}<span class="badge badge-secondary">No Groups</span>{% endif %}
                             </td>
                             <td>
-                                <div class="table-actions">
-                                    {% if session.get('is_admin') %}
-                                    <button class="btn btn-ghost btn-sm"
-                                            onclick="openUserEditModal(this)"
-                                            data-sam="{{ u.SamAccountName }}"
-                                            data-name="{{ u.Name | e }}"
-                                            data-enabled="{{ 'true' if u.Enabled else 'false' }}"
-                                            data-groups="{{ u.Groups | e if u.Groups else '' }}">
-                                        ✏ Edit
-                                    </button>
-                                    {% endif %}
-                                </div>
+                                {% if session.get('is_admin') %}
+                                <button class="btn btn-ghost btn-sm"
+                                        onclick="openUserEditModal(this)"
+                                        data-sam="{{ u.SamAccountName }}"
+                                        data-name="{{ u.Name | e }}"
+                                        data-enabled="{{ 'true' if u.Enabled else 'false' }}"
+                                        data-groups="{{ u.Groups | e if u.Groups else '' }}">
+                                    ✏ Edit
+                                </button>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
@@ -455,29 +398,31 @@
         </div>
 
         <!-- SOFTWARE LICENSE INVENTORY -->
-        <div class="content-card">
+        <div class="content-card" style="margin-bottom:12px;">
             <div class="card-header">
                 <div class="card-title-block">
                     <div class="card-title">Software License Inventory</div>
-                    <div class="card-subtitle">Quản lý kho license phần mềm trong hệ thống</div>
+                    <div class="card-subtitle">Quản lý kho license phần mềm</div>
                 </div>
-                <div class="card-actions">
+                <div class="card-actions" style="flex-wrap:wrap;gap:6px;">
+                    <input type="text" id="licenseSearchInput" class="search-box" placeholder="Tìm license..." oninput="filterLicenseTable()">
+                    <a href="/export-licenses-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export</a>
                     {% if session.get('is_admin') %}
-                    <button class="btn btn-primary btn-sm" onclick="openPanel('license-panel', null)">+ Thêm License</button>
-                    <button class="btn btn-secondary btn-sm" onclick="openPanel('assign-license-panel', null)">🔑 Cấp License</button>
+                    <button class="btn btn-primary btn-sm" onclick="openPanel('license-panel', null)">+ Thêm</button>
+                    <button class="btn btn-secondary btn-sm" onclick="openPanel('assign-license-panel', null)">🔑 Cấp</button>
                     {% endif %}
                 </div>
             </div>
             <div class="table-container">
-                <table class="modern-table">
+                <table class="modern-table" id="licenseTable">
                     <thead>
                         <tr>
-                            <th>ID</th>
-                            <th>License Key</th>
-                            <th>Phần Mềm</th>
-                            <th>Tổng</th>
-                            <th>Đã Dùng</th>
-                            <th>Còn Lại</th>
+                            <th onclick="sortTable('licenseTable',0)" style="cursor:pointer;user-select:none;">ID <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
+                            <th onclick="sortTable('licenseTable',1)" style="cursor:pointer;user-select:none;">License Key <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
+                            <th onclick="sortTable('licenseTable',2)" style="cursor:pointer;user-select:none;">Phần Mềm <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
+                            <th onclick="sortTable('licenseTable',3)" style="cursor:pointer;user-select:none;">Tổng <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
+                            <th onclick="sortTable('licenseTable',4)" style="cursor:pointer;user-select:none;">Đã Dùng <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
+                            <th onclick="sortTable('licenseTable',5)" style="cursor:pointer;user-select:none;">Còn Lại <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
                             {% if session.get('is_admin') %}<th>Actions</th>{% endif %}
                         </tr>
                     </thead>
@@ -512,25 +457,25 @@
         </div>
 
         <!-- LICENSE ASSIGNMENT HISTORY -->
-        <div class="content-card">
+        <div class="content-card" style="margin-bottom:12px;">
             <div class="card-header">
                 <div class="card-title-block">
                     <div class="card-title">License Assignment History</div>
                     <div class="card-subtitle">Danh sách license đã cấp — có thể thu hồi từng dòng</div>
                 </div>
-                <a href="/export-licenses-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    Export CSV
-                </a>
+                <div class="card-actions" style="gap:6px;">
+                    <input type="text" id="assignSearchInput" class="search-box" placeholder="Tìm..." oninput="filterAssignTable()">
+                    <a href="/export-licenses-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export</a>
+                </div>
             </div>
             <div class="table-container scroll-area">
-                <table class="modern-table">
+                <table class="modern-table" id="assignTable">
                     <thead>
                         <tr>
-                            <th>User</th>
-                            <th>License Key</th>
-                            <th>Số Lượng</th>
-                            <th>Thời Gian Cấp</th>
+                            <th onclick="sortTable('assignTable',0)" style="cursor:pointer;user-select:none;">User <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
+                            <th onclick="sortTable('assignTable',1)" style="cursor:pointer;user-select:none;">License Key <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
+                            <th onclick="sortTable('assignTable',2)" style="cursor:pointer;user-select:none;">Số Lượng <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
+                            <th onclick="sortTable('assignTable',3)" style="cursor:pointer;user-select:none;">Thời Gian Cấp <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
                             {% if session.get('is_admin') %}<th>Thu Hồi</th>{% endif %}
                         </tr>
                     </thead>
@@ -540,7 +485,7 @@
                             <td><strong>{{ a[1] }}</strong></td>
                             <td><code>{{ a[2] }}</code></td>
                             <td><span class="badge badge-info">{{ a[3] }}</span></td>
-                            <td style="color:var(--text-soft); font-size:12px;">{{ a[4] }}</td>
+                            <td style="color:var(--text-soft);font-size:12px;">{{ a[4].strftime('%d/%m/%Y %H:%M') if a[4] else '' }}</td>
                             {% if session.get('is_admin') %}
                             <td>
                                 <button class="btn btn-warning btn-sm"
@@ -566,7 +511,7 @@
 
         <div class="page-header">
             <div>
-                <div class="page-title">Audit Logs</div>
+                <div class="page-title">Audit Log</div>
                 <div class="page-subtitle">Lịch sử toàn bộ thao tác của Admin — 200 bản ghi gần nhất</div>
             </div>
             <div class="page-actions">
@@ -716,81 +661,93 @@
 
 <!-- ══════════════════ MODAL: Edit User AD ══════════════════ -->
 <div id="userEditModal" class="modal">
-    <div class="modal-content" style="max-width:560px;">
+    <div class="modal-content" style="max-width:580px;">
         <div class="modal-header">
             <div class="modal-title">✏ Chỉnh sửa User AD</div>
             <button class="close-btn" onclick="closeUserModal()">✕</button>
         </div>
-        <div class="modal-body">
+        <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
 
-            <!-- Info -->
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-                <div>
-                    <div class="eu-label">Username</div>
-                    <input type="text" id="eu_edit_username" placeholder="Username"
-                        style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text);font-size:14px;font-family:monospace;font-weight:700;">
+            <!-- Step 1: Thông tin -->
+            <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+                <div style="padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border-light);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);display:flex;align-items:center;gap:8px;">
+                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">1</span>
+                    Thông Tin Tài Khoản
                 </div>
-                <div>
-                    <div class="eu-label">Display Name</div>
-                    <input type="text" id="eu_edit_displayname" placeholder="Display Name"
-                        style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text);font-size:14px;">
+                <div style="padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div>
+                        <div class="eu-label">Username hiện tại</div>
+                        <div id="eu_sam" class="eu-value eu-mono"></div>
+                    </div>
+                    <div>
+                        <div class="eu-label">Username mới (để trống = giữ nguyên)</div>
+                        <input type="text" id="eu_new_sam" placeholder="Đổi username..."
+                            style="width:100%;height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;font-family:monospace;outline:none;">
+                    </div>
+                    <div>
+                        <div class="eu-label">Display Name</div>
+                        <input type="text" id="eu_display_name" placeholder="Họ và tên hiển thị..."
+                            style="width:100%;height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;outline:none;">
+                    </div>
+                    <div>
+                        <div class="eu-label">Mật Khẩu Mới (để trống = không đổi)</div>
+                        <input type="password" id="eu_password" placeholder="Mật khẩu mới..."
+                            style="width:100%;height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;outline:none;">
+                    </div>
                 </div>
             </div>
 
-            <!-- Password -->
-            <div style="margin-bottom:16px;">
-                <div class="eu-label" style="margin-bottom:8px;">Mật Khẩu Mới</div>
-                <input type="password" id="eu_edit_password" placeholder="Để trống nếu không đổi"
-                    style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text);font-size:14px;">
-                <div style="font-size:11px;color:var(--text-soft);margin-top:6px;">Để trống nếu không muốn đổi mật khẩu</div>
-            </div>
-
-            <!-- Trạng thái -->
-            <div style="margin-bottom:16px;">
-                <div class="eu-label" style="margin-bottom:8px;">Trạng Thái</div>
-                <div style="display:flex;gap:8px;">
-                    <button id="eu_btn_active" onclick="euSetStatus(true)"
-                        style="flex:1;padding:10px 0;border-radius:6px;border:2px solid;font-weight:600;font-size:13px;cursor:pointer;transition:all .15s;">
+            <!-- Step 2: Trạng thái -->
+            <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+                <div style="padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border-light);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);display:flex;align-items:center;gap:8px;">
+                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">2</span>
+                    Trạng Thái Tài Khoản
+                </div>
+                <div style="padding:14px;display:flex;gap:10px;">
+                    <button type="button" id="eu_btn_active" onclick="euSetStatus(true)"
+                        style="flex:1;padding:9px 0;border-radius:6px;border:2px solid;font-weight:600;font-size:13px;cursor:pointer;transition:all .15s;">
                         ✅ Active
                     </button>
-                    <button id="eu_btn_disabled" onclick="euSetStatus(false)"
-                        style="flex:1;padding:10px 0;border-radius:6px;border:2px solid;font-weight:600;font-size:13px;cursor:pointer;transition:all .15s;">
+                    <button type="button" id="eu_btn_disabled" onclick="euSetStatus(false)"
+                        style="flex:1;padding:9px 0;border-radius:6px;border:2px solid;font-weight:600;font-size:13px;cursor:pointer;transition:all .15s;">
                         ❌ Disabled
                     </button>
-                </div>
-                <input type="hidden" id="eu_status">
-            </div>
-
-            <div style="height:1px;background:var(--border-light);margin-bottom:16px;"></div>
-
-            <!-- Groups hiện tại -->
-            <div class="eu-label" style="margin-bottom:8px;">Quản Lý Group</div>
-            <div style="margin-bottom:10px;">
-                <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Groups hiện tại — bấm ✕ để xóa</div>
-                <div id="eu_current_groups"
-                    style="min-height:38px;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+                    <input type="hidden" id="eu_status">
                 </div>
             </div>
 
-            <!-- Thêm group -->
-            <div style="margin-bottom:4px;">
-                <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Thêm vào Group</div>
-                <div style="display:grid;grid-template-columns:1fr 80px;gap:8px;">
-                    <select id="eu_group_select"
-                        style="height:38px;padding:0 8px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;min-width:0;width:100%;">
-                    </select>
-                    <button type="button" id="eu_add_btn" onclick="euAddGroup()"
-                        style="height:38px;background:#0078d4;color:#ffffff;border:none;border-radius:4px;font-weight:700;font-size:12px;cursor:pointer;padding:0;width:80px;">
-                        + Thêm
-                    </button>
+            <!-- Step 3: Group -->
+            <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+                <div style="padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border-light);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);display:flex;align-items:center;gap:8px;">
+                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">3</span>
+                    Quản Lý Group
+                </div>
+                <div style="padding:14px;display:flex;flex-direction:column;gap:10px;">
+                    <div>
+                        <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Groups hiện tại — bấm ✕ để xóa ngay</div>
+                        <div id="eu_current_groups"
+                            style="min-height:36px;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+                        </div>
+                    </div>
+                    <div>
+                        <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Thêm vào Group</div>
+                        <div style="display:grid;grid-template-columns:1fr 80px;gap:8px;">
+                            <select id="eu_group_select"
+                                style="height:36px;padding:0 8px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;width:100%;min-width:0;">
+                            </select>
+                            <button type="button" id="eu_add_btn" onclick="euAddGroup()"
+                                style="height:36px;background:#0078d4;color:#fff;border:none;border-radius:4px;font-weight:700;font-size:12px;cursor:pointer;">
+                                + Thêm
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div style="margin-top:14px;padding:10px 12px;background:var(--info-bg);border-radius:6px;font-size:12px;color:var(--info);">
-                ℹ Thay đổi Group áp dụng ngay lên AD. Bấm "Lưu" để cập nhật thông tin khác.
+            <div style="padding:10px 12px;background:var(--info-bg);border-radius:6px;font-size:12px;color:var(--info);">
+                ℹ Thay đổi Group áp dụng ngay lên AD. Bấm "Lưu" để cập nhật các thông tin còn lại.
             </div>
         </div>
-
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeUserModal()">Đóng</button>
             <button type="button" class="btn btn-primary" onclick="euSaveAll()">💾 Lưu Thay Đổi</button>
@@ -799,8 +756,8 @@
 </div>
 
 <style>
-.eu-label { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);margin-bottom:5px; }
-.eu-value { padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;font-size:14px;color:var(--text); }
+.eu-label { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);margin-bottom:4px;display:block; }
+.eu-value { padding:7px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;font-size:14px;color:var(--text);min-height:34px;display:flex;align-items:center; }
 .eu-mono  { font-family:monospace;font-weight:700;color:var(--azure); }
 </style>
 
@@ -854,44 +811,6 @@ function showSection(id, navBtn) {
     closeAllPanels();
 }
 
-// ─────────────────────── CREATE USER GROUP FILTER ───────────────────────
-function filterCreateUserGroups(q) {
-    const labels = document.querySelectorAll('#cu_group_list label');
-    const qLower = q.toLowerCase();
-    labels.forEach(lbl => {
-        const name = lbl.textContent.trim().toLowerCase();
-        lbl.style.display = name.includes(qLower) ? '' : 'none';
-    });
-}
-
-// ─────────────────────── LOAD OUs ───────────────────────
-function loadOuSelect() {
-    const sel = document.getElementById('ou_dn_select');
-    if (!sel) return;
-    fetch('/api/ous')
-        .then(r => r.json())
-        .then(data => {
-            sel.innerHTML = '';
-            if (!data.ous || !data.ous.length) {
-                sel.innerHTML = '<option value="OU=Users,DC=pv,DC=local">OU=Users,DC=pv,DC=local (default)</option>';
-                return;
-            }
-            data.ous.forEach(ou => {
-                const opt = document.createElement('option');
-                opt.value = ou.dn;
-                // Hiển thị tên OU và path rút gọn
-                const parts = ou.dn.split(',');
-                const depth = parts.filter(p => p.startsWith('OU=')).length;
-                const indent = '  '.repeat(Math.max(0, depth - 1));
-                opt.textContent = indent + ou.name + '  (' + ou.dn + ')';
-                sel.appendChild(opt);
-            });
-        })
-        .catch(() => {
-            if (sel) sel.innerHTML = '<option value="OU=Users,DC=pv,DC=local">OU=Users,DC=pv,DC=local</option>';
-        });
-}
-
 // ─────────────────────── PANELS ───────────────────────
 function openPanel(id, navBtn) {
     if (navBtn) {
@@ -906,7 +825,6 @@ function openPanel(id, navBtn) {
     if (!el) return;
     el.classList.remove('hidden');
     setTimeout(() => el.scrollIntoView({ behavior:'smooth', block:'start' }), 80);
-    if (id === 'create-user-panel') loadOuSelect();
 }
 
 function closeAllPanels() {
@@ -922,6 +840,7 @@ function quickEditLicense(id, key, name, total) {
     document.getElementById('form_software_key').value   = key;
     document.getElementById('form_software_name').value  = name;
     document.getElementById('form_total_licenses').value = total;
+    document.getElementById('form_admin_pass').value     = '';
     document.getElementById('license-form-title').textContent = '✏ Chỉnh Sửa License';
     document.getElementById('submit-inventory-btn').textContent = '💾 Cập Nhật';
     document.getElementById('cancel-edit-btn').classList.remove('hidden');
@@ -929,21 +848,83 @@ function quickEditLicense(id, key, name, total) {
 }
 
 function resetLicenseForm() {
-    ['form_row_id','form_software_key','form_software_name','form_total_licenses'].forEach(id => {
-        document.getElementById(id).value = '';
+    ['form_row_id','form_software_key','form_software_name','form_total_licenses','form_admin_pass'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
     });
     document.getElementById('license-form-title').textContent = 'Nhập Kho License';
     document.getElementById('submit-inventory-btn').textContent = '💾 Lưu License';
     document.getElementById('cancel-edit-btn').classList.add('hidden');
 }
 
-// ─────────────────────── USER SEARCH ───────────────────────
+function confirmLicenseSave(e) {
+    const pass = document.getElementById('form_admin_pass').value;
+    if (!pass) { e.preventDefault(); showToast('Vui lòng nhập mật khẩu Administrator', 'warning'); return false; }
+    showLoading();
+    return true;
+}
+
+// ─────────────────────── SEARCH + SORT ───────────────────────
 function filterUserTable() {
-    const f    = document.getElementById('userSearchInput').value.toUpperCase();
-    const rows = document.getElementById('userTable').getElementsByTagName('tr');
+    const f      = (document.getElementById('userSearchInput').value || '').toUpperCase();
+    const status = (document.getElementById('userStatusFilter') || {}).value || '';
+    const rows   = document.getElementById('userTable').getElementsByTagName('tr');
+    for (let i = 1; i < rows.length; i++) {
+        const row      = rows[i];
+        const text     = Array.from(row.getElementsByTagName('td')).map(c=>c.textContent).join(' ').toUpperCase();
+        const rStatus  = row.dataset.status || '';
+        const textOk   = !f      || text.includes(f);
+        const statusOk = !status || rStatus === status;
+        row.style.display = (textOk && statusOk) ? '' : 'none';
+    }
+}
+
+function filterLicenseTable() {
+    const f    = document.getElementById('licenseSearchInput').value.toUpperCase();
+    const rows = document.getElementById('licenseTable').getElementsByTagName('tr');
     for (let i = 1; i < rows.length; i++) {
         const text = Array.from(rows[i].getElementsByTagName('td')).map(c=>c.textContent).join(' ').toUpperCase();
         rows[i].style.display = text.includes(f) ? '' : 'none';
+    }
+}
+
+function filterAssignTable() {
+    const f    = document.getElementById('assignSearchInput').value.toUpperCase();
+    const rows = document.getElementById('assignTable').getElementsByTagName('tr');
+    for (let i = 1; i < rows.length; i++) {
+        const text = Array.from(rows[i].getElementsByTagName('td')).map(c=>c.textContent).join(' ').toUpperCase();
+        rows[i].style.display = text.includes(f) ? '' : 'none';
+    }
+}
+
+// ── Sort table khi click header ──
+const _sortState = {};
+function sortTable(tableId, colIdx) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    const key  = tableId + '_' + colIdx;
+    _sortState[key] = !_sortState[key];
+    const asc   = _sortState[key];
+    const tbody = table.querySelector('tbody');
+    const rows  = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {
+        const aText = (a.getElementsByTagName('td')[colIdx]?.textContent || '').trim();
+        const bText = (b.getElementsByTagName('td')[colIdx]?.textContent || '').trim();
+        const aNum  = parseFloat(aText), bNum = parseFloat(bText);
+        if (!isNaN(aNum) && !isNaN(bNum)) return asc ? aNum - bNum : bNum - aNum;
+        return asc ? aText.localeCompare(bText, 'vi') : bText.localeCompare(aText, 'vi');
+    });
+    rows.forEach(r => tbody.appendChild(r));
+    // Update header icons
+    Array.from(table.querySelectorAll('thead th span')).forEach((sp, i) => {
+        if (sp.textContent === '↑' || sp.textContent === '↓' || sp.textContent === '⇅') {
+            sp.textContent = '⇅';
+        }
+    });
+    const ths = Array.from(table.querySelectorAll('thead th'));
+    if (ths[colIdx]) {
+        const sp = ths[colIdx].querySelector('span');
+        if (sp) sp.textContent = asc ? '↑' : '↓';
     }
 }
 
@@ -1003,16 +984,16 @@ function submitDelete() {
 let _revokeUser = null, _revokeKey = null, _revokeMax = 0;
 
 function openRevokeModal(username, licenseKey, currentQty) {
-    _revokeUser = username;
-    _revokeKey  = licenseKey;
-    _revokeMax  = currentQty;
+    _revokeUser = String(username || '');
+    _revokeKey  = String(licenseKey || '');
+    _revokeMax  = parseInt(currentQty) || 1;
 
-    document.getElementById('revoke_user_display').textContent    = username;
-    document.getElementById('revoke_key_display').textContent     = licenseKey;
-    document.getElementById('revoke_current_qty').textContent     = currentQty;
-    document.getElementById('revoke_qty_input').value             = 1;
-    document.getElementById('revoke_qty_input').max               = currentQty;
-    document.getElementById('revoke_qty_hint').textContent        = `Tối đa có thể thu hồi: ${currentQty}`;
+    document.getElementById('revoke_user_display').textContent = _revokeUser;
+    document.getElementById('revoke_key_display').textContent  = _revokeKey;
+    document.getElementById('revoke_current_qty').textContent  = _revokeMax;
+    document.getElementById('revoke_qty_input').value          = 1;
+    document.getElementById('revoke_qty_input').max            = _revokeMax;
+    document.getElementById('revoke_qty_hint').textContent     = `Tối đa có thể thu hồi: ${_revokeMax}`;
 
     document.getElementById('revokeModal').classList.add('show');
     setTimeout(()=>document.getElementById('revoke_qty_input').focus(), 100);
@@ -1039,7 +1020,9 @@ function submitRevoke() {
         hideLoading();
         closeRevokeModal();
         if (data.status === 'success') {
-            showToast(`Thu hồi ${qty} license "${_revokeKey}" của ${_revokeUser} thành công`, 'success');
+            const savedUser = _revokeUser, savedKey = _revokeKey;
+            showToast(`Thu hồi ${qty} license "${savedKey}" của ${savedUser} thành công`, 'success');
+            closeRevokeModal();
             setTimeout(()=>location.reload(), 1200);
         } else {
             showToast(data.message || 'Thu hồi thất bại', 'danger');
@@ -1070,11 +1053,12 @@ function openUserEditModal(btn) {
     _euGroups = (btn.dataset.groups || '').split(',').map(g => g.trim()).filter(Boolean);
 
     const isActive = btn.dataset.enabled === 'true';
-    const displayName = btn.dataset.name || '';
 
-    document.getElementById('eu_edit_username').value = _euSam;
-    document.getElementById('eu_edit_displayname').value = displayName;
-    document.getElementById('eu_edit_password').value = '';
+    document.getElementById('eu_sam').textContent  = _euSam;
+    // Populate editable fields
+    if (document.getElementById('eu_new_sam'))      document.getElementById('eu_new_sam').value      = '';
+    if (document.getElementById('eu_display_name')) document.getElementById('eu_display_name').value = btn.dataset.name || '';
+    if (document.getElementById('eu_password'))     document.getElementById('eu_password').value     = '';
 
     euSetStatus(isActive);
     euRenderGroups();
@@ -1200,52 +1184,26 @@ function euRemoveGroup(group) {
     .catch(() => showToast('Lỗi kết nối', 'danger'));
 }
 
-// ── Lưu toàn bộ thay đổi ──
+// ── Lưu tất cả thay đổi ──
+function euSaveStatus() { euSaveAll(); }  // backward compat
 function euSaveAll() {
-    const oldUsername = _euSam;
-    const newUsername = document.getElementById('eu_edit_username').value.trim();
-    const password = document.getElementById('eu_edit_password').value;
-    const displayname = document.getElementById('eu_edit_displayname').value;
-    const status = document.getElementById('eu_status').value;
-
-    if (!newUsername) {
-        showToast('Vui lòng nhập Username', 'warning');
-        return;
-    }
-
-    if (!displayname.trim()) {
-        showToast('Vui lòng nhập Display Name', 'warning');
-        return;
-    }
-
     showLoading();
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/edit-user-ad';
-
     const fields = {
-        'edit_old_username': oldUsername,
-        'edit_username': newUsername,
-        'edit_displayname': displayname,
-        'edit_password': password,
-        'edit_status': status
+        'edit_username':     _euSam,
+        'edit_new_sam':      (document.getElementById('eu_new_sam') || {}).value || '',
+        'edit_display_name': (document.getElementById('eu_display_name') || {}).value || '',
+        'edit_password':     (document.getElementById('eu_password') || {}).value || '',
+        'edit_status':       document.getElementById('eu_status').value,
     };
-
-    for (const [name, value] of Object.entries(fields)) {
-        const inp = document.createElement('input');
-        inp.type = 'hidden';
-        inp.name = name;
-        inp.value = value;
-        form.appendChild(inp);
-    }
-
+    Object.entries(fields).forEach(([k, v]) => {
+        const i = document.createElement('input');
+        i.type='hidden'; i.name=k; i.value=v; form.appendChild(i);
+    });
     document.body.appendChild(form);
     form.submit();
-}
-
-// ── Lưu trạng thái (deprecated - keep for backward compatibility) ──
-function euSaveStatus() {
-    euSaveAll();
 }
 
 // ─────────────────────── DISCONNECT DOMAIN ───────────────────────
