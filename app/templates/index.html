@@ -66,6 +66,14 @@
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></span>
             Cấp License
         </button>
+        <button class="nav-item" onclick="openPanel('create-group-panel', this); loadGroupOuSelect()">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+            Tạo Group AD
+        </button>
+        <button class="nav-item" onclick="showSection('section-groups', this)">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+            Quản Lý Group
+        </button>
         <button class="nav-item" onclick="showSection('section-audit', this)">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
             Audit Log
@@ -107,7 +115,83 @@
         <div class="version">PV Portal v2.0</div>
     </div>
 
-    <!-- Hidden form for domain disconnect -->
+    <!-- ══════════════════ MODAL: Tạo Group ══════════════════ -->
+<div id="createGroupModal" class="modal">
+    <div class="modal-content" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Tạo Group Mới
+            </div>
+            <button class="close-btn" onclick="closeCreateGroupModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <form id="createGroupForm" action="/create-group" method="POST" onsubmit="showLoading()">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div class="form-group">
+                        <label>Tên Group <span style="color:var(--danger);">*</span></label>
+                        <input type="text" name="group_name" id="cg_name" required
+                            placeholder="vd: KETOAN" style="font-family:monospace;font-weight:600;">
+                        <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Không dấu, không khoảng trắng</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Mô Tả</label>
+                        <input type="text" name="description" placeholder="vd: Nhóm kế toán">
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div class="form-group">
+                        <label>Group Scope</label>
+                        <select name="group_scope" style="height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                            <option value="Global" selected>Global</option>
+                            <option value="Universal">Universal</option>
+                            <option value="DomainLocal">Domain Local</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select name="group_type" style="height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                            <option value="Security" selected>Security</option>
+                            <option value="Distribution">Distribution</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>OU (để trống = CN=Users mặc định)</label>
+                    <select name="ou_dn" id="cg_ou_select"
+                        style="height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                        <option value="">— CN=Users (mặc định) —</option>
+                    </select>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeCreateGroupModal()">Hủy</button>
+            <button type="button" class="btn btn-primary" onclick="document.getElementById('createGroupForm').submit(); showLoading();">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Tạo Group
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════ MODAL: Group Members ══════════════════ -->
+<div id="groupMembersModal" class="modal">
+    <div class="modal-content" style="max-width:500px;">
+        <div class="modal-header">
+            <div class="modal-title" id="groupMembersTitle">👥 Thành viên Group</div>
+            <button class="close-btn" onclick="document.getElementById('groupMembersModal').classList.remove('show')">✕</button>
+        </div>
+        <div class="modal-body" id="groupMembersBody" style="max-height:400px;overflow-y:auto;">
+            <div style="text-align:center;color:var(--text-muted);padding:20px;">Đang tải...</div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="document.getElementById('groupMembersModal').classList.remove('show')">Đóng</button>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden form for domain disconnect -->
     <form id="disconnectDomainForm" action="/disconnect-domain" method="POST" class="hidden"></form>
 </aside>
 
@@ -350,6 +434,84 @@
                 </form>
             </div>
         </div>
+        <!-- CREATE GROUP PANEL -->
+        <div id="create-group-panel" class="content-card action-panel hidden">
+            <div class="card-header">
+                <div class="card-title-block">
+                    <div class="card-title">Tạo Group Active Directory</div>
+                    <div class="card-subtitle">Tạo Security Group hoặc Distribution Group mới trong domain</div>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="closeAllPanels()">✕ Đóng</button>
+            </div>
+            <div class="card-body" style="padding:0;">
+                <form action="/create-group" method="POST" onsubmit="showLoading()">
+                    <div style="padding:20px 24px;border-bottom:1px solid var(--border-light);">
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+                            <div style="width:22px;height:22px;border-radius:50%;background:var(--azure);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;">1</div>
+                            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-soft);">Thông Tin Group</span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                            <div class="form-group">
+                                <label>Tên Group <span style="color:var(--danger);">*</span></label>
+                                <input type="text" name="group_name" placeholder="vd: KETOAN, IT-DEV" required style="font-family:monospace;font-weight:600;">
+                                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Không dấu, không khoảng trắng</div>
+                            </div>
+                            <div class="form-group">
+                                <label>Mô Tả</label>
+                                <input type="text" name="description" placeholder="vd: Nhóm kế toán">
+                            </div>
+                        </div>
+                    </div>
+                    <div style="padding:20px 24px;border-bottom:1px solid var(--border-light);">
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+                            <div style="width:22px;height:22px;border-radius:50%;background:var(--azure);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;">2</div>
+                            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-soft);">Loại Group</span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                            <div class="form-group">
+                                <label>Group Scope</label>
+                                <select name="group_scope" style="height:32px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                                    <option value="Global" selected>Global (thông dụng nhất)</option>
+                                    <option value="Universal">Universal</option>
+                                    <option value="DomainLocal">Domain Local</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Group Category</label>
+                                <select name="group_type" style="height:32px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                                    <option value="Security" selected>Security (phân quyền)</option>
+                                    <option value="Distribution">Distribution (email)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="padding:20px 24px;border-bottom:1px solid var(--border-light);">
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+                            <div style="width:22px;height:22px;border-radius:50%;background:var(--azure);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;">3</div>
+                            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-soft);">Vị Trí Trong AD</span>
+                        </div>
+                        <div class="form-group" style="max-width:480px;">
+                            <label>Organizational Unit (OU)</label>
+                            <select name="ou_dn" id="group_ou_dn_select" style="height:32px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                                <option value="">Đang tải...</option>
+                            </select>
+                            <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Để trống → tạo trong CN=Users (mặc định)</div>
+                        </div>
+                    </div>
+                    <div style="padding:14px 24px;display:flex;justify-content:space-between;align-items:center;background:var(--bg-secondary);">
+                        <div style="font-size:12px;color:var(--text-muted);"><span style="color:var(--danger);">*</span> Trường bắt buộc</div>
+                        <div style="display:flex;gap:10px;">
+                            <button type="button" class="btn btn-secondary" onclick="closeAllPanels()">Hủy</button>
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                Tạo Group
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         {% endif %}
 
         <!-- AD USERS TABLE -->
@@ -368,6 +530,7 @@
                     </select>
                     {% if session.get('is_admin') %}
                     <a href="/export-users-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export</a>
+                    <button class="btn btn-secondary btn-sm" onclick="openCreateGroupModal()">+ Tạo Group</button>
                     <button class="btn btn-primary btn-sm" onclick="openPanel('create-user-panel', null); loadOuSelect()">+ Tạo User</button>
                     {% endif %}
                 </div>
@@ -528,6 +691,66 @@
          SECTION: AUDIT LOG
     ════════════════════════════════════ -->
     {% if session.get('is_admin') %}
+    <!-- ════════ SECTION: QUẢN LÝ GROUP ════════ -->
+    <div id="section-groups" class="hidden">
+
+        <div class="page-header">
+            <div>
+                <div class="page-title">Quản Lý Group</div>
+                <div class="page-subtitle">Danh sách Group trong domain — tạo, xem thành viên</div>
+            </div>
+            <div class="page-actions">
+                <button class="btn btn-primary" onclick="openCreateGroupModal()">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Tạo Group Mới
+                </button>
+            </div>
+        </div>
+
+        <!-- Filter -->
+        <div class="content-card" style="padding:12px 16px;">
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <input type="text" id="groupSearchInput" class="search-box"
+                    placeholder="Tìm group..." oninput="filterGroupTable()" style="width:220px;">
+            </div>
+        </div>
+
+        <!-- Group table -->
+        <div class="content-card">
+            <div class="table-container scroll-area" style="max-height:500px;">
+                <table class="modern-table" id="groupTable">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('groupTable',0)" style="cursor:pointer;user-select:none;">Tên Group <span>⇅</span></th>
+                            <th onclick="sortTable('groupTable',1)" style="cursor:pointer;user-select:none;">SamAccountName <span>⇅</span></th>
+                            <th>Distinguished Name</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for g in ad_groups %}
+                        <tr>
+                            <td><strong>{{ g.Name }}</strong></td>
+                            <td><code>{{ g.SamAccountName }}</code></td>
+                            <td style="font-size:11px;color:var(--text-muted);max-width:300px;word-break:break-all;">{{ g.DistinguishedName }}</td>
+                            <td>
+                                <button class="btn btn-ghost btn-sm"
+                                        onclick="viewGroupMembers('{{ g.Name }}')">
+                                    👥 Thành viên
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% if not ad_groups %}
+                        <tr><td colspan="4" style="text-align:center;padding:30px;color:var(--text-muted);">Chưa có group nào</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div><!-- /section-groups -->
+
     <div id="section-audit" class="hidden">
 
         <div class="page-header">
@@ -819,14 +1042,14 @@ function hideLoading()  { document.getElementById('loadingOverlay').classList.re
 
 // ─────────────────────── SECTION SWITCH ───────────────────────
 function showSection(id, navBtn) {
-    document.querySelectorAll('#section-dashboard, #section-audit').forEach(s => s.classList.add('hidden'));
+    document.querySelectorAll('#section-dashboard, #section-groups, #section-audit').forEach(s => s.classList.add('hidden'));
     const el = document.getElementById(id);
     if (el) el.classList.remove('hidden');
 
     document.querySelectorAll('.sidebar-nav .nav-item').forEach(b => b.classList.remove('active'));
     if (navBtn) navBtn.classList.add('active');
 
-    const labels = { 'section-dashboard': 'Dashboard', 'section-audit': 'Audit Log' };
+    const labels = { 'section-dashboard': 'Dashboard', 'section-groups': 'Quản Lý Group', 'section-audit': 'Audit Log' };
     document.getElementById('breadcrumbCurrent').textContent = labels[id] || id;
 
     closeAllPanels();
@@ -849,7 +1072,7 @@ function openPanel(id, navBtn) {
 }
 
 function closeAllPanels() {
-    ['create-user-panel','license-panel','assign-license-panel'].forEach(id => {
+    ['create-user-panel','license-panel','assign-license-panel','create-group-panel'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
     });
@@ -884,6 +1107,28 @@ function confirmLicenseSave(e) {
     showLoading();
     return true;
 }
+
+// ─────────────────────── LOAD OUs ───────────────────────
+function _loadOuIntoSelect(selectId) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    fetch('/api/ous')
+        .then(r => r.json())
+        .then(data => {
+            const defaultOpt = sel.options[0] ? sel.options[0].textContent : '— Mặc định —';
+            sel.innerHTML = `<option value="">${defaultOpt}</option>`;
+            (data.ous || []).forEach(ou => {
+                const opt = document.createElement('option');
+                opt.value = ou.dn;
+                const depth = (ou.dn.match(/OU=/gi) || []).length;
+                opt.textContent = '  '.repeat(Math.max(0, depth-1)) + '📁 ' + ou.name + '  (' + ou.dn + ')';
+                sel.appendChild(opt);
+            });
+        })
+        .catch(() => { if(sel) sel.innerHTML = '<option value="">— Mặc định —</option>'; });
+}
+function loadOuSelect()      { _loadOuIntoSelect('ou_dn_select'); }
+function loadGroupOuSelect() { _loadOuIntoSelect('group_ou_dn_select'); }
 
 // ─────────────────────── SEARCH + SORT ───────────────────────
 function filterUserTable() {
@@ -1227,6 +1472,80 @@ function euSaveAll() {
     form.submit();
 }
 
+// ─────────────────────── CREATE GROUP MODAL ───────────────────────
+function openCreateGroupModal() {
+    // Load OUs vào select
+    const sel = document.getElementById('cg_ou_select');
+    if (sel && sel.options.length <= 1) {
+        fetch('/api/ous')
+            .then(r => r.json())
+            .then(data => {
+                (data.ous || []).forEach(ou => {
+                    const opt = document.createElement('option');
+                    opt.value = ou.dn;
+                    const depth = (ou.dn.match(/OU=/gi)||[]).length;
+                    opt.textContent = '  '.repeat(Math.max(0,depth-1)) + '📁 ' + ou.name;
+                    sel.appendChild(opt);
+                });
+            });
+    }
+    document.getElementById('cg_name').value = '';
+    document.getElementById('createGroupModal').classList.add('show');
+    setTimeout(() => document.getElementById('cg_name').focus(), 100);
+}
+
+function closeCreateGroupModal() {
+    document.getElementById('createGroupModal').classList.remove('show');
+}
+
+// ─────────────────────── VIEW GROUP MEMBERS ───────────────────────
+function viewGroupMembers(groupName) {
+    const modal = document.getElementById('groupMembersModal');
+    const body  = document.getElementById('groupMembersBody');
+    const title = document.getElementById('groupMembersTitle');
+    title.textContent = '👥 Thành viên: ' + groupName;
+    body.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;"><div class="loader" style="margin:auto;"></div><div style="margin-top:10px;">Đang tải...</div></div>';
+    modal.classList.add('show');
+
+    fetch('/api/group-members/' + encodeURIComponent(groupName))
+        .then(r => r.json())
+        .then(data => {
+            const members = data.members || [];
+            if (!members.length) {
+                body.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:30px;">Group chưa có thành viên nào</div>';
+                return;
+            }
+            body.innerHTML = `
+                <div style="margin-bottom:10px;font-size:12px;color:var(--text-soft);">Tổng: <strong>${members.length}</strong> thành viên</div>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                    ${members.map(m => `
+                        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--r-sm);">
+                            <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--azure),var(--azure-purple));color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                ${(m.name||m.sam||'?')[0].toUpperCase()}
+                            </div>
+                            <div>
+                                <div style="font-size:13px;font-weight:600;color:var(--text);">${m.name || m.sam}</div>
+                                <div style="font-size:11px;color:var(--text-muted);font-family:monospace;">${m.sam || ''}</div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        })
+        .catch(() => {
+            body.innerHTML = '<div style="text-align:center;color:var(--danger);padding:20px;">Lỗi tải thành viên</div>';
+        });
+}
+
+function filterGroupTable() {
+    const f    = document.getElementById('groupSearchInput').value.toUpperCase();
+    const rows = document.getElementById('groupTable').getElementsByTagName('tr');
+    for (let i = 1; i < rows.length; i++) {
+        const text = Array.from(rows[i].getElementsByTagName('td')).map(c=>c.textContent).join(' ').toUpperCase();
+        rows[i].style.display = text.includes(f) ? '' : 'none';
+    }
+}
+
 // ─────────────────────── DISCONNECT DOMAIN ───────────────────────
 function confirmDisconnectDomain() {
     if (confirm('Bạn chắc chắn muốn thoát khỏi domain hiện tại?\nToàn bộ session sẽ bị đăng xuất và cần kết nối lại domain để tiếp tục sử dụng.')) {
@@ -1246,7 +1565,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Modal close on backdrop click
-    ['passwordModal','revokeModal','userEditModal'].forEach(id => {
+    ['passwordModal','revokeModal','userEditModal','createGroupModal','groupMembersModal'].forEach(id => {
         const m = document.getElementById(id);
         if (m) m.addEventListener('click', e => { if (e.target===m) m.classList.remove('show'); });
     });

@@ -560,6 +560,42 @@ def create_user():
     return redirect(url_for('index'))
 
 # ─────────────────────────────────────────────
+#  Tạo Group AD
+# ─────────────────────────────────────────────
+@app.route('/create-group', methods=['POST'])
+@domain_required
+@admin_required
+def create_group():
+    cfg        = get_active_domain_config()
+    group_name = request.form.get('group_name', '').strip()
+    group_scope = request.form.get('group_scope', 'Global')   # Global/Universal/DomainLocal
+    group_type  = request.form.get('group_type', 'Security')  # Security/Distribution
+    ou_dn       = request.form.get('ou_dn', '').strip()
+    description = request.form.get('description', '').strip()
+
+    if not group_name:
+        return redirect(url_for('index'))
+
+    # Nếu không chọn OU, dùng CN=Users
+    if not ou_dn:
+        base_dn = cfg['base_dn']
+        ou_dn   = f"CN=Users,{base_dn}"
+
+    ps_parts = [
+        "Import-Module ActiveDirectory",
+        f"New-ADGroup -Name '{group_name}' -SamAccountName '{group_name}' "
+        f"-GroupScope '{group_scope}' -GroupCategory '{group_type}' "
+        f"-Path '{ou_dn}'"
+    ]
+    if description:
+        ps_parts[-1] += f" -Description '{description}'"
+
+    out, err, ec = run_powershell_ssh(' ; '.join(ps_parts), cfg, return_stderr=True)
+    write_log(session['user'], 'CREATE_GROUP', target=group_name,
+              detail=f"scope={group_scope}, type={group_type}, ou={ou_dn}, exit={ec}")
+    return redirect(url_for('index'))
+
+# ─────────────────────────────────────────────
 #  Edit user AD
 # ─────────────────────────────────────────────
 @app.route('/edit-user-ad', methods=['POST'])
@@ -834,6 +870,29 @@ def export_users_csv():
     output.headers["Content-Disposition"] = "attachment; filename=ad_users.csv"
     output.headers["Content-type"] = "text/csv; charset=utf-8-sig"
     return output
+
+# ─────────────────────────────────────────────
+#  API — get group members
+# ─────────────────────────────────────────────
+@app.route('/api/group-members/<group_name>')
+@domain_required
+@login_required
+def api_group_members(group_name):
+    cfg    = get_active_domain_config()
+    ps_cmd = (
+        f"Get-ADGroupMember -Identity '{group_name}' | "
+        f"Select-Object SamAccountName, Name | "
+        f"Sort-Object Name | ConvertTo-Json -Compress"
+    )
+    out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    try:
+        members = json.loads(out.strip())
+        if isinstance(members, dict): members = [members]
+        elif not isinstance(members, list): members = []
+        result = [{"sam": m.get("SamAccountName",""), "name": m.get("Name","")} for m in members]
+    except Exception:
+        result = []
+    return jsonify({"members": result, "group": group_name})
 
 # ─────────────────────────────────────────────
 #  API — get AD groups (custom only)
