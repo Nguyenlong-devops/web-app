@@ -54,25 +54,13 @@
 
         {% if session.get('is_admin') %}
         <div class="nav-section-label">Administration</div>
-        <button class="nav-item" onclick="openPanel('create-user-panel', this)">
-            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg></span>
-            Tạo User AD
-        </button>
-        <button class="nav-item" onclick="openPanel('license-panel', this)">
-            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
-            Quản Lý License
-        </button>
-        <button class="nav-item" onclick="openPanel('assign-license-panel', this)">
-            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></span>
-            Cấp License
-        </button>
-        <button class="nav-item" onclick="openPanel('create-group-panel', this); loadGroupOuSelect()">
-            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
-            Tạo Group AD
-        </button>
         <button class="nav-item" onclick="showSection('section-groups', this)">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
             Quản Lý Group
+        </button>
+        <button class="nav-item" onclick="showSection('section-computers', this)">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>
+            Quản Lý Computer
         </button>
         <button class="nav-item" onclick="showSection('section-audit', this)">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
@@ -119,20 +107,15 @@
 <div id="createGroupModal" class="modal">
     <div class="modal-content" style="max-width:480px;">
         <div class="modal-header">
-            <div class="modal-title">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                Tạo Group Mới
-            </div>
-            <button class="close-btn" onclick="closeCreateGroupModal()">✕</button>
+            <div class="modal-title">+ Tạo Group Mới</div>
+            <button class="close-btn" onclick="closeModal('createGroupModal')">✕</button>
         </div>
         <div class="modal-body">
             <form id="createGroupForm" action="/create-group" method="POST" onsubmit="showLoading()">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
                     <div class="form-group">
-                        <label>Tên Group <span style="color:var(--danger);">*</span></label>
-                        <input type="text" name="group_name" id="cg_name" required
-                            placeholder="vd: KETOAN" style="font-family:monospace;font-weight:600;">
-                        <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Không dấu, không khoảng trắng</div>
+                        <label>Tên Group *</label>
+                        <input type="text" name="group_name" id="cg_name" required placeholder="vd: KETOAN" style="font-family:monospace;font-weight:600;">
                     </div>
                     <div class="form-group">
                         <label>Mô Tả</label>
@@ -157,36 +140,108 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>OU (để trống = CN=Users mặc định)</label>
-                    <select name="ou_dn" id="cg_ou_select"
-                        style="height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                    <label>OU (để trống = CN=Users)</label>
+                    <select name="ou_dn" id="cg_ou_select" style="height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
                         <option value="">— CN=Users (mặc định) —</option>
                     </select>
                 </div>
             </form>
         </div>
         <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" onclick="closeCreateGroupModal()">Hủy</button>
-            <button type="button" class="btn btn-primary" onclick="document.getElementById('createGroupForm').submit(); showLoading();">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Tạo Group
-            </button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('createGroupModal')">Hủy</button>
+            <button type="button" class="btn btn-primary" onclick="document.getElementById('createGroupForm').submit();showLoading();">+ Tạo Group</button>
         </div>
     </div>
 </div>
 
 <!-- ══════════════════ MODAL: Group Members ══════════════════ -->
 <div id="groupMembersModal" class="modal">
-    <div class="modal-content" style="max-width:500px;">
+    <div class="modal-content" style="max-width:520px;">
         <div class="modal-header">
             <div class="modal-title" id="groupMembersTitle">👥 Thành viên Group</div>
-            <button class="close-btn" onclick="document.getElementById('groupMembersModal').classList.remove('show')">✕</button>
+            <button class="close-btn" onclick="closeModal('groupMembersModal')">✕</button>
         </div>
-        <div class="modal-body" id="groupMembersBody" style="max-height:400px;overflow-y:auto;">
-            <div style="text-align:center;color:var(--text-muted);padding:20px;">Đang tải...</div>
+        <div class="modal-body">
+            <!-- Thêm thành viên -->
+            <div style="display:grid;grid-template-columns:1fr 80px;gap:8px;margin-bottom:12px;">
+                <select id="gm_add_user_select" style="height:34px;padding:0 8px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;width:100%;min-width:0;">
+                    <option value="">— Chọn user để thêm —</option>
+                    {% for u in ad_users %}
+                    <option value="{{ u.SamAccountName }}">{{ u.SamAccountName }} — {{ u.Name }}</option>
+                    {% endfor %}
+                </select>
+                <button type="button" onclick="addMemberToGroup()" style="height:34px;background:#0078d4;color:#fff;border:none;border-radius:4px;font-weight:700;font-size:12px;cursor:pointer;">+ Thêm</button>
+            </div>
+            <!-- Danh sách thành viên -->
+            <div style="font-size:12px;color:var(--text-soft);margin-bottom:8px;">Thành viên hiện tại — bấm ✕ để xóa</div>
+            <div id="groupMembersBody" style="max-height:350px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;">
+                <div style="text-align:center;color:var(--text-muted);padding:20px;">Đang tải...</div>
+            </div>
         </div>
         <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="document.getElementById('groupMembersModal').classList.remove('show')">Đóng</button>
+            <button class="btn btn-secondary" onclick="closeModal('groupMembersModal')">Đóng</button>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════ MODAL: Add/Edit Computer ══════════════════ -->
+<div id="computerModal" class="modal">
+    <div class="modal-content" style="max-width:560px;">
+        <div class="modal-header">
+            <div class="modal-title" id="computerModalTitle">+ Thêm Máy Tính</div>
+            <button class="close-btn" onclick="closeModal('computerModal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="cm_id">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="form-group">
+                    <label>Tên Máy *</label>
+                    <input type="text" id="cm_name" placeholder="vd: PC-KT-01" style="font-family:monospace;font-weight:600;">
+                </div>
+                <div class="form-group">
+                    <label>CPU</label>
+                    <input type="text" id="cm_cpu" placeholder="vd: Intel Core i7-1165G7">
+                </div>
+                <div class="form-group">
+                    <label>RAM</label>
+                    <input type="text" id="cm_ram" placeholder="vd: 16GB DDR4">
+                </div>
+                <div class="form-group">
+                    <label>SSD</label>
+                    <input type="text" id="cm_ssd" placeholder="vd: 512GB NVMe">
+                </div>
+                <div class="form-group">
+                    <label>HDD</label>
+                    <input type="text" id="cm_hdd" placeholder="vd: 1TB HDD">
+                </div>
+                <div class="form-group">
+                    <label>Windows</label>
+                    <input type="text" id="cm_os" placeholder="vd: Windows 11 Pro">
+                </div>
+                <div class="form-group">
+                    <label>Dự Án</label>
+                    <input type="text" id="cm_project" placeholder="vd: PV Infrastructure">
+                </div>
+                <div class="form-group">
+                    <label>Vị Trí</label>
+                    <input type="text" id="cm_location" placeholder="vd: Tầng 3 - Phòng IT">
+                </div>
+                <div class="form-group">
+                    <label>Tình Trạng</label>
+                    <select id="cm_status" style="height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                        <option value="in_use">Đang sử dụng</option>
+                        <option value="storage">Lưu kho</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label>Ghi Chú</label>
+                    <input type="text" id="cm_notes" placeholder="Ghi chú thêm...">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('computerModal')">Hủy</button>
+            <button class="btn btn-primary" onclick="saveComputer()">💾 Lưu</button>
         </div>
     </div>
 </div>
@@ -310,36 +365,15 @@
                             <input type="text" name="ou_dn" value="OU=Users,DC=pv,DC=local" required>
                         </div>
                     </div>
-                    <!-- Gán Group bằng checkbox -->
-                    <div style="margin-top:12px;">
-                        <label style="font-size:12px;font-weight:600;color:var(--text-soft);display:block;margin-bottom:8px;">
-                            Gán Group <span style="font-weight:400;color:var(--text-muted);">(tuỳ chọn)</span>
-                        </label>
-
-                        <!-- Search filter -->
-                        <input type="text" id="cu_group_filter" placeholder="🔍 Tìm group..."
-                            oninput="filterCreateUserGroups(this.value)"
-                            style="width:220px;height:30px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:12px;outline:none;margin-bottom:8px;">
-
-                        <!-- Checkbox grid -->
-                        <div id="cu_group_list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:2px;max-height:200px;overflow-y:auto;padding:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--r-md);">
+                    <div class="form-group" style="margin-top:12px;">
+                        <label>Gán Group (Ctrl+Click chọn nhiều)</label>
+                        <select name="group_ids[]" multiple>
                             {% for g in ad_groups %}
-                            <label style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:4px;cursor:pointer;font-size:13px;color:var(--text);"
-                                   onmouseover="this.style.background='var(--azure-light)'"
-                                   onmouseout="this.style.background='transparent'">
-                                <input type="checkbox" name="group_ids[]" value="{{ g.Name }}"
-                                    style="width:14px;height:14px;accent-color:var(--azure);cursor:pointer;flex-shrink:0;">
-                                {{ g.Name }}
-                            </label>
+                            <option value="{{ g.Name }}">{{ g.Name }}</option>
                             {% endfor %}
-                            {% if not ad_groups %}
-                            <div style="color:var(--text-muted);font-size:12px;padding:8px;">Không có group nào</div>
-                            {% endif %}
-                        </div>
+                        </select>
                     </div>
-
                     <div class="form-actions">
-                        <button type="button" class="btn btn-secondary" onclick="closeAllPanels()">Hủy</button>
                         <button class="btn btn-primary" type="submit">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                             Tạo User
@@ -434,84 +468,6 @@
                 </form>
             </div>
         </div>
-        <!-- CREATE GROUP PANEL -->
-        <div id="create-group-panel" class="content-card action-panel hidden">
-            <div class="card-header">
-                <div class="card-title-block">
-                    <div class="card-title">Tạo Group Active Directory</div>
-                    <div class="card-subtitle">Tạo Security Group hoặc Distribution Group mới trong domain</div>
-                </div>
-                <button class="btn btn-secondary btn-sm" onclick="closeAllPanels()">✕ Đóng</button>
-            </div>
-            <div class="card-body" style="padding:0;">
-                <form action="/create-group" method="POST" onsubmit="showLoading()">
-                    <div style="padding:20px 24px;border-bottom:1px solid var(--border-light);">
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-                            <div style="width:22px;height:22px;border-radius:50%;background:var(--azure);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;">1</div>
-                            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-soft);">Thông Tin Group</span>
-                        </div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-                            <div class="form-group">
-                                <label>Tên Group <span style="color:var(--danger);">*</span></label>
-                                <input type="text" name="group_name" placeholder="vd: KETOAN, IT-DEV" required style="font-family:monospace;font-weight:600;">
-                                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Không dấu, không khoảng trắng</div>
-                            </div>
-                            <div class="form-group">
-                                <label>Mô Tả</label>
-                                <input type="text" name="description" placeholder="vd: Nhóm kế toán">
-                            </div>
-                        </div>
-                    </div>
-                    <div style="padding:20px 24px;border-bottom:1px solid var(--border-light);">
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-                            <div style="width:22px;height:22px;border-radius:50%;background:var(--azure);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;">2</div>
-                            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-soft);">Loại Group</span>
-                        </div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-                            <div class="form-group">
-                                <label>Group Scope</label>
-                                <select name="group_scope" style="height:32px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
-                                    <option value="Global" selected>Global (thông dụng nhất)</option>
-                                    <option value="Universal">Universal</option>
-                                    <option value="DomainLocal">Domain Local</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Group Category</label>
-                                <select name="group_type" style="height:32px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
-                                    <option value="Security" selected>Security (phân quyền)</option>
-                                    <option value="Distribution">Distribution (email)</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <div style="padding:20px 24px;border-bottom:1px solid var(--border-light);">
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-                            <div style="width:22px;height:22px;border-radius:50%;background:var(--azure);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;">3</div>
-                            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-soft);">Vị Trí Trong AD</span>
-                        </div>
-                        <div class="form-group" style="max-width:480px;">
-                            <label>Organizational Unit (OU)</label>
-                            <select name="ou_dn" id="group_ou_dn_select" style="height:32px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
-                                <option value="">Đang tải...</option>
-                            </select>
-                            <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Để trống → tạo trong CN=Users (mặc định)</div>
-                        </div>
-                    </div>
-                    <div style="padding:14px 24px;display:flex;justify-content:space-between;align-items:center;background:var(--bg-secondary);">
-                        <div style="font-size:12px;color:var(--text-muted);"><span style="color:var(--danger);">*</span> Trường bắt buộc</div>
-                        <div style="display:flex;gap:10px;">
-                            <button type="button" class="btn btn-secondary" onclick="closeAllPanels()">Hủy</button>
-                            <button type="submit" class="btn btn-primary btn-lg">
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                                Tạo Group
-                            </button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
-
         {% endif %}
 
         <!-- AD USERS TABLE -->
@@ -530,7 +486,6 @@
                     </select>
                     {% if session.get('is_admin') %}
                     <a href="/export-users-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export</a>
-                    <button class="btn btn-secondary btn-sm" onclick="openCreateGroupModal()">+ Tạo Group</button>
                     <button class="btn btn-primary btn-sm" onclick="openPanel('create-user-panel', null); loadOuSelect()">+ Tạo User</button>
                     {% endif %}
                 </div>
@@ -553,9 +508,9 @@
                             <td><strong>{{ u.Name }}</strong></td>
                             <td>
                                 {% if u.Enabled %}
-                                <span class="badge badge-success">Active</span>
+                                <span class="badge badge-success">● Active</span>
                                 {% else %}
-                                <span class="badge badge-danger">Disabled</span>
+                                <span class="badge badge-danger">● Disabled</span>
                                 {% endif %}
                             </td>
                             <td style="max-width:260px;color:var(--text-soft);font-size:12px;">
@@ -569,7 +524,8 @@
                                         data-sam="{{ u.SamAccountName }}"
                                         data-name="{{ u.Name | e }}"
                                         data-enabled="{{ 'true' if u.Enabled else 'false' }}"
-                                        data-groups="{{ u.Groups | e if u.Groups else '' }}">
+                                        data-groups="{{ u.Groups | e if u.Groups else '' }}"
+                                        data-dn="{{ u.DistinguishedName | e if u.DistinguishedName else '' }}">
                                     ✏ Edit
                                 </button>
                                 {% endif %}
@@ -691,33 +647,26 @@
          SECTION: AUDIT LOG
     ════════════════════════════════════ -->
     {% if session.get('is_admin') %}
+
     <!-- ════════ SECTION: QUẢN LÝ GROUP ════════ -->
     <div id="section-groups" class="hidden">
-
         <div class="page-header">
             <div>
                 <div class="page-title">Quản Lý Group</div>
-                <div class="page-subtitle">Danh sách Group trong domain — tạo, xem thành viên</div>
+                <div class="page-subtitle">Tổng <strong>{{ ad_groups|length }}</strong> group trong domain</div>
             </div>
-            <div class="page-actions">
-                <button class="btn btn-primary" onclick="openCreateGroupModal()">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    Tạo Group Mới
-                </button>
-            </div>
+            <button class="btn btn-primary" onclick="openCreateGroupModal()">
+                + Tạo Group Mới
+            </button>
         </div>
 
-        <!-- Filter -->
-        <div class="content-card" style="padding:12px 16px;">
-            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-                <input type="text" id="groupSearchInput" class="search-box"
-                    placeholder="Tìm group..." oninput="filterGroupTable()" style="width:220px;">
-            </div>
+        <div class="content-card" style="padding:12px 16px;margin-bottom:8px;">
+            <input type="text" id="groupSearchInput" class="search-box"
+                placeholder="Tìm group..." oninput="filterGroupTable()">
         </div>
 
-        <!-- Group table -->
         <div class="content-card">
-            <div class="table-container scroll-area" style="max-height:500px;">
+            <div class="table-container scroll-area" style="max-height:600px;">
                 <table class="modern-table" id="groupTable">
                     <thead>
                         <tr>
@@ -734,22 +683,112 @@
                             <td><code>{{ g.SamAccountName }}</code></td>
                             <td style="font-size:11px;color:var(--text-muted);max-width:300px;word-break:break-all;">{{ g.DistinguishedName }}</td>
                             <td>
-                                <button class="btn btn-ghost btn-sm"
-                                        onclick="viewGroupMembers('{{ g.Name }}')">
+                                <button class="btn btn-ghost btn-sm" onclick="openGroupMembersModal('{{ g.Name }}')">
                                     👥 Thành viên
                                 </button>
                             </td>
                         </tr>
                         {% endfor %}
-                        {% if not ad_groups %}
-                        <tr><td colspan="4" style="text-align:center;padding:30px;color:var(--text-muted);">Chưa có group nào</td></tr>
-                        {% endif %}
                     </tbody>
                 </table>
             </div>
         </div>
-
     </div><!-- /section-groups -->
+
+    <!-- ════════ SECTION: QUẢN LÝ COMPUTER ════════ -->
+    <div id="section-computers" class="hidden">
+        <div class="page-header">
+            <div>
+                <div class="page-title">Quản Lý Computer</div>
+                <div class="page-subtitle">Tài sản máy tính và máy đã join domain</div>
+            </div>
+            <div class="page-actions">
+                <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
+                    📥 Import CSV
+                    <input type="file" id="importComputerFile" accept=".csv" style="display:none;" onchange="importComputerCSV(this)">
+                </label>
+                <a href="/export-computers-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export CSV</a>
+                <button class="btn btn-primary btn-sm" onclick="openAddComputerModal()">+ Thêm Máy</button>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div style="display:flex;gap:4px;margin-bottom:12px;">
+            <button id="tab_assets" onclick="switchComputerTab('assets')"
+                style="padding:8px 20px;border:none;border-radius:var(--r-md) var(--r-md) 0 0;font-weight:600;font-size:13px;cursor:pointer;background:var(--azure);color:#fff;">
+                📋 Danh Sách Tài Sản
+            </button>
+            <button id="tab_domain" onclick="switchComputerTab('domain')"
+                style="padding:8px 20px;border:none;border-radius:var(--r-md) var(--r-md) 0 0;font-weight:600;font-size:13px;cursor:pointer;background:var(--bg-secondary);color:var(--text-soft);">
+                🖥 Máy Trong Domain
+            </button>
+        </div>
+
+        <!-- Tab: Tài sản -->
+        <div id="tab_panel_assets">
+            <div class="content-card" style="padding:12px 16px;margin-bottom:8px;">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <input type="text" id="assetSearchInput" class="search-box"
+                        placeholder="Tìm máy..." oninput="filterAssetTable()">
+                    <select id="assetStatusFilter" onchange="filterAssetTable()"
+                        style="height:30px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);font-size:12px;background:var(--card);color:var(--text);outline:none;">
+                        <option value="">Tất cả tình trạng</option>
+                        <option value="in_use">Đang sử dụng</option>
+                        <option value="storage">Lưu kho</option>
+                    </select>
+                </div>
+            </div>
+            <div class="content-card">
+                <div class="table-container" style="max-height:550px;overflow-y:auto;">
+                    <table class="modern-table" id="assetTable">
+                        <thead>
+                            <tr>
+                                <th onclick="sortTable('assetTable',0)" style="cursor:pointer;user-select:none;">Tên Máy <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',1)" style="cursor:pointer;user-select:none;">CPU <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',2)" style="cursor:pointer;user-select:none;">RAM <span>⇅</span></th>
+                                <th>SSD</th>
+                                <th>HDD</th>
+                                <th onclick="sortTable('assetTable',5)" style="cursor:pointer;user-select:none;">Windows <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',6)" style="cursor:pointer;user-select:none;">Dự Án <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',7)" style="cursor:pointer;user-select:none;">Vị Trí <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',8)" style="cursor:pointer;user-select:none;">Tình Trạng <span>⇅</span></th>
+                                <th>Ghi Chú</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="assetTableBody">
+                            <tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text-muted);">Đang tải...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Domain computers -->
+        <div id="tab_panel_domain" style="display:none;">
+            <div class="content-card" style="padding:12px 16px;margin-bottom:8px;">
+                <input type="text" id="domainComputerSearch" class="search-box"
+                    placeholder="Tìm máy trong domain..." oninput="filterDomainComputerTable()">
+            </div>
+            <div class="content-card">
+                <div class="table-container" style="max-height:550px;overflow-y:auto;">
+                    <table class="modern-table" id="domainComputerTable">
+                        <thead>
+                            <tr>
+                                <th onclick="sortTable('domainComputerTable',0)" style="cursor:pointer;user-select:none;">Tên Máy <span>⇅</span></th>
+                                <th onclick="sortTable('domainComputerTable',1)" style="cursor:pointer;user-select:none;">Hệ Điều Hành <span>⇅</span></th>
+                                <th>Distinguished Name</th>
+                            </tr>
+                        </thead>
+                        <tbody id="domainComputerTableBody">
+                            <tr><td colspan="3" style="text-align:center;padding:30px;color:var(--text-muted);">Bấm tab để tải dữ liệu</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /section-computers -->
 
     <div id="section-audit" class="hidden">
 
@@ -905,33 +944,34 @@
 
 <!-- ══════════════════ MODAL: Edit User AD ══════════════════ -->
 <div id="userEditModal" class="modal">
-    <div class="modal-content" style="max-width:580px;">
+    <div class="modal-content" style="max-width:600px;">
         <div class="modal-header">
             <div class="modal-title">✏ Chỉnh sửa User AD</div>
             <button class="close-btn" onclick="closeUserModal()">✕</button>
         </div>
-        <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+        <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;max-height:75vh;overflow-y:auto;">
 
-            <!-- Step 1: Thông tin -->
+            <!-- 1: Thông tin -->
             <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
                 <div style="padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border-light);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);display:flex;align-items:center;gap:8px;">
-                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">1</span>
+                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;">1</span>
                     Thông Tin Tài Khoản
                 </div>
                 <div style="padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                     <div>
-                        <div class="eu-label">Username hiện tại</div>
+                        <div class="eu-label">Username (SamAccountName) hiện tại</div>
                         <div id="eu_sam" class="eu-value eu-mono"></div>
                     </div>
                     <div>
                         <div class="eu-label">Username mới (để trống = giữ nguyên)</div>
-                        <input type="text" id="eu_new_sam" placeholder="Đổi username..."
+                        <input type="text" id="eu_new_sam" placeholder="Đổi username đăng nhập..."
                             style="width:100%;height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;font-family:monospace;outline:none;">
                     </div>
                     <div>
-                        <div class="eu-label">Display Name</div>
-                        <input type="text" id="eu_display_name" placeholder="Họ và tên hiển thị..."
+                        <div class="eu-label">Tên hiển thị (AD Name / Rename)</div>
+                        <input type="text" id="eu_display_name" placeholder="Tên hiển thị trong AD..."
                             style="width:100%;height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;outline:none;">
+                        <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Tương đương chuột phải → Rename trong AD</div>
                     </div>
                     <div>
                         <div class="eu-label">Mật Khẩu Mới (để trống = không đổi)</div>
@@ -941,48 +981,53 @@
                 </div>
             </div>
 
-            <!-- Step 2: Trạng thái -->
+            <!-- 2: Trạng thái -->
             <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
                 <div style="padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border-light);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);display:flex;align-items:center;gap:8px;">
-                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">2</span>
-                    Trạng Thái Tài Khoản
+                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;">2</span>
+                    Trạng Thái
                 </div>
                 <div style="padding:14px;display:flex;gap:10px;">
                     <button type="button" id="eu_btn_active" onclick="euSetStatus(true)"
-                        style="flex:1;padding:9px 0;border-radius:6px;border:2px solid;font-weight:600;font-size:13px;cursor:pointer;transition:all .15s;">
-                        ✅ Active
-                    </button>
+                        style="flex:1;padding:9px 0;border-radius:6px;border:2px solid;font-weight:600;font-size:13px;cursor:pointer;transition:all .15s;">✅ Active</button>
                     <button type="button" id="eu_btn_disabled" onclick="euSetStatus(false)"
-                        style="flex:1;padding:9px 0;border-radius:6px;border:2px solid;font-weight:600;font-size:13px;cursor:pointer;transition:all .15s;">
-                        ❌ Disabled
-                    </button>
+                        style="flex:1;padding:9px 0;border-radius:6px;border:2px solid;font-weight:600;font-size:13px;cursor:pointer;transition:all .15s;">❌ Disabled</button>
                     <input type="hidden" id="eu_status">
                 </div>
             </div>
 
-            <!-- Step 3: Group -->
+            <!-- 3: Di chuyển OU -->
             <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
                 <div style="padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border-light);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);display:flex;align-items:center;gap:8px;">
-                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">3</span>
+                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;">3</span>
+                    Vị Trí OU
+                </div>
+                <div style="padding:14px;">
+                    <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Di chuyển sang OU khác (để trống = giữ nguyên)</div>
+                    <select id="eu_ou_select"
+                        style="width:100%;height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;outline:none;">
+                        <option value="">— Giữ nguyên OU hiện tại —</option>
+                    </select>
+                    <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">OU hiện tại: <span id="eu_current_ou" style="font-family:monospace;"></span></div>
+                </div>
+            </div>
+
+            <!-- 4: Group -->
+            <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+                <div style="padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border-light);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);display:flex;align-items:center;gap:8px;">
+                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;">4</span>
                     Quản Lý Group
                 </div>
                 <div style="padding:14px;display:flex;flex-direction:column;gap:10px;">
                     <div>
-                        <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Groups hiện tại — bấm ✕ để xóa ngay</div>
-                        <div id="eu_current_groups"
-                            style="min-height:36px;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
-                        </div>
+                        <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Groups hiện tại — bấm ✕ để xóa</div>
+                        <div id="eu_current_groups" style="min-height:36px;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;"></div>
                     </div>
                     <div>
                         <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Thêm vào Group</div>
                         <div style="display:grid;grid-template-columns:1fr 80px;gap:8px;">
-                            <select id="eu_group_select"
-                                style="height:36px;padding:0 8px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;width:100%;min-width:0;">
-                            </select>
-                            <button type="button" id="eu_add_btn" onclick="euAddGroup()"
-                                style="height:36px;background:#0078d4;color:#fff;border:none;border-radius:4px;font-weight:700;font-size:12px;cursor:pointer;">
-                                + Thêm
-                            </button>
+                            <select id="eu_group_select" style="height:36px;padding:0 8px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;width:100%;min-width:0;"></select>
+                            <button type="button" id="eu_add_btn" onclick="euAddGroup()" style="height:36px;background:#0078d4;color:#fff;border:none;border-radius:4px;font-weight:700;font-size:12px;cursor:pointer;">+ Thêm</button>
                         </div>
                     </div>
                 </div>
@@ -1042,14 +1087,15 @@ function hideLoading()  { document.getElementById('loadingOverlay').classList.re
 
 // ─────────────────────── SECTION SWITCH ───────────────────────
 function showSection(id, navBtn) {
-    document.querySelectorAll('#section-dashboard, #section-groups, #section-audit').forEach(s => s.classList.add('hidden'));
+    document.querySelectorAll('#section-dashboard, #section-groups, #section-computers, #section-audit').forEach(s => s.classList.add('hidden'));
     const el = document.getElementById(id);
     if (el) el.classList.remove('hidden');
+    if (id === 'section-computers') loadAssets();
 
     document.querySelectorAll('.sidebar-nav .nav-item').forEach(b => b.classList.remove('active'));
     if (navBtn) navBtn.classList.add('active');
 
-    const labels = { 'section-dashboard': 'Dashboard', 'section-groups': 'Quản Lý Group', 'section-audit': 'Audit Log' };
+    const labels = { 'section-dashboard': 'Dashboard', 'section-groups': 'Quản Lý Group', 'section-computers': 'Quản Lý Computer', 'section-audit': 'Audit Log' };
     document.getElementById('breadcrumbCurrent').textContent = labels[id] || id;
 
     closeAllPanels();
@@ -1072,7 +1118,7 @@ function openPanel(id, navBtn) {
 }
 
 function closeAllPanels() {
-    ['create-user-panel','license-panel','assign-license-panel','create-group-panel'].forEach(id => {
+    ['create-user-panel','license-panel','assign-license-panel'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
     });
@@ -1107,28 +1153,6 @@ function confirmLicenseSave(e) {
     showLoading();
     return true;
 }
-
-// ─────────────────────── LOAD OUs ───────────────────────
-function _loadOuIntoSelect(selectId) {
-    const sel = document.getElementById(selectId);
-    if (!sel) return;
-    fetch('/api/ous')
-        .then(r => r.json())
-        .then(data => {
-            const defaultOpt = sel.options[0] ? sel.options[0].textContent : '— Mặc định —';
-            sel.innerHTML = `<option value="">${defaultOpt}</option>`;
-            (data.ous || []).forEach(ou => {
-                const opt = document.createElement('option');
-                opt.value = ou.dn;
-                const depth = (ou.dn.match(/OU=/gi) || []).length;
-                opt.textContent = '  '.repeat(Math.max(0, depth-1)) + '📁 ' + ou.name + '  (' + ou.dn + ')';
-                sel.appendChild(opt);
-            });
-        })
-        .catch(() => { if(sel) sel.innerHTML = '<option value="">— Mặc định —</option>'; });
-}
-function loadOuSelect()      { _loadOuIntoSelect('ou_dn_select'); }
-function loadGroupOuSelect() { _loadOuIntoSelect('group_ou_dn_select'); }
 
 // ─────────────────────── SEARCH + SORT ───────────────────────
 function filterUserTable() {
@@ -1452,17 +1476,18 @@ function euRemoveGroup(group) {
 
 // ── Lưu tất cả thay đổi ──
 function euSaveStatus() { euSaveAll(); }  // backward compat
-function euSaveAll() {
+function euSaveAll() { 
     showLoading();
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/edit-user-ad';
     const fields = {
         'edit_username':     _euSam,
-        'edit_new_sam':      (document.getElementById('eu_new_sam') || {}).value || '',
+        'edit_new_sam':      (document.getElementById('eu_new_sam')      || {}).value || '',
         'edit_display_name': (document.getElementById('eu_display_name') || {}).value || '',
-        'edit_password':     (document.getElementById('eu_password') || {}).value || '',
+        'edit_password':     (document.getElementById('eu_password')     || {}).value || '',
         'edit_status':       document.getElementById('eu_status').value,
+        'edit_ou_dn':        (document.getElementById('eu_ou_select')    || {}).value || '',
     };
     Object.entries(fields).forEach(([k, v]) => {
         const i = document.createElement('input');
@@ -1472,86 +1497,316 @@ function euSaveAll() {
     form.submit();
 }
 
-// ─────────────────────── CREATE GROUP MODAL ───────────────────────
-function openCreateGroupModal() {
-    // Load OUs vào select
-    const sel = document.getElementById('cg_ou_select');
-    if (sel && sel.options.length <= 1) {
-        fetch('/api/ous')
-            .then(r => r.json())
-            .then(data => {
-                (data.ous || []).forEach(ou => {
-                    const opt = document.createElement('option');
-                    opt.value = ou.dn;
-                    const depth = (ou.dn.match(/OU=/gi)||[]).length;
-                    opt.textContent = '  '.repeat(Math.max(0,depth-1)) + '📁 ' + ou.name;
-                    sel.appendChild(opt);
-                });
-            });
-    }
-    document.getElementById('cg_name').value = '';
-    document.getElementById('createGroupModal').classList.add('show');
-    setTimeout(() => document.getElementById('cg_name').focus(), 100);
-}
-
-function closeCreateGroupModal() {
-    document.getElementById('createGroupModal').classList.remove('show');
-}
-
-// ─────────────────────── VIEW GROUP MEMBERS ───────────────────────
-function viewGroupMembers(groupName) {
-    const modal = document.getElementById('groupMembersModal');
-    const body  = document.getElementById('groupMembersBody');
-    const title = document.getElementById('groupMembersTitle');
-    title.textContent = '👥 Thành viên: ' + groupName;
-    body.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;"><div class="loader" style="margin:auto;"></div><div style="margin-top:10px;">Đang tải...</div></div>';
-    modal.classList.add('show');
-
-    fetch('/api/group-members/' + encodeURIComponent(groupName))
-        .then(r => r.json())
-        .then(data => {
-            const members = data.members || [];
-            if (!members.length) {
-                body.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:30px;">Group chưa có thành viên nào</div>';
-                return;
-            }
-            body.innerHTML = `
-                <div style="margin-bottom:10px;font-size:12px;color:var(--text-soft);">Tổng: <strong>${members.length}</strong> thành viên</div>
-                <div style="display:flex;flex-direction:column;gap:4px;">
-                    ${members.map(m => `
-                        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--r-sm);">
-                            <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--azure),var(--azure-purple));color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                                ${(m.name||m.sam||'?')[0].toUpperCase()}
-                            </div>
-                            <div>
-                                <div style="font-size:13px;font-weight:600;color:var(--text);">${m.name || m.sam}</div>
-                                <div style="font-size:11px;color:var(--text-muted);font-family:monospace;">${m.sam || ''}</div>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        })
-        .catch(() => {
-            body.innerHTML = '<div style="text-align:center;color:var(--danger);padding:20px;">Lỗi tải thành viên</div>';
-        });
-}
-
-function filterGroupTable() {
-    const f    = document.getElementById('groupSearchInput').value.toUpperCase();
-    const rows = document.getElementById('groupTable').getElementsByTagName('tr');
-    for (let i = 1; i < rows.length; i++) {
-        const text = Array.from(rows[i].getElementsByTagName('td')).map(c=>c.textContent).join(' ').toUpperCase();
-        rows[i].style.display = text.includes(f) ? '' : 'none';
-    }
-}
-
 // ─────────────────────── DISCONNECT DOMAIN ───────────────────────
 function confirmDisconnectDomain() {
     if (confirm('Bạn chắc chắn muốn thoát khỏi domain hiện tại?\nToàn bộ session sẽ bị đăng xuất và cần kết nối lại domain để tiếp tục sử dụng.')) {
         showLoading();
         document.getElementById('disconnectDomainForm').submit();
     }
+}
+
+// ─────────────────────── MODAL HELPERS ───────────────────────
+function closeModal(id) {
+    document.getElementById(id).classList.remove('show');
+}
+
+// ─────────────────────── LOAD OUs HELPER ───────────────────────
+function _loadOuIntoSelect(selId, defaultText) {
+    const sel = document.getElementById(selId);
+    if (!sel) return;
+    fetch('/api/ous').then(r=>r.json()).then(data=>{
+        sel.innerHTML = `<option value="">${defaultText||'— Mặc định —'}</option>`;
+        (data.ous||[]).forEach(ou=>{
+            const opt=document.createElement('option');
+            opt.value=ou.dn;
+            const d=(ou.dn.match(/OU=/gi)||[]).length;
+            opt.textContent='  '.repeat(Math.max(0,d-1))+'📁 '+ou.name;
+            sel.appendChild(opt);
+        });
+    }).catch(()=>{});
+}
+function loadOuSelect()      { _loadOuIntoSelect('ou_dn_select','— Chọn OU —'); }
+function loadGroupOuSelect() { _loadOuIntoSelect('cg_ou_select','— CN=Users (mặc định) —'); }
+function loadEditOuSelect()  { _loadOuIntoSelect('eu_ou_select','— Giữ nguyên OU hiện tại —'); }
+
+// ─────────────────────── CREATE GROUP MODAL ───────────────────────
+function openCreateGroupModal() {
+    loadGroupOuSelect();
+    const n=document.getElementById('cg_name'); if(n) n.value='';
+    document.getElementById('createGroupModal').classList.add('show');
+    setTimeout(()=>{ const n=document.getElementById('cg_name'); if(n)n.focus(); },100);
+}
+function openCreateGroupModalFromSection() { openCreateGroupModal(); }
+
+// ─────────────────────── GROUP MEMBERS MODAL ───────────────────────
+let _currentGroup = '';
+function openGroupMembersModal(groupName) {
+    _currentGroup = groupName;
+    document.getElementById('groupMembersTitle').textContent = '👥 Thành viên: ' + groupName;
+    document.getElementById('groupMembersModal').classList.add('show');
+    loadGroupMembers(groupName);
+}
+
+function loadGroupMembers(groupName) {
+    const body = document.getElementById('groupMembersBody');
+    body.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;">Đang tải...</div>';
+    fetch('/api/group-members/'+encodeURIComponent(groupName))
+    .then(r=>r.json())
+    .then(data=>{
+        const members = data.members||[];
+        if (!members.length) {
+            body.innerHTML='<div style="text-align:center;color:var(--text-muted);padding:20px;">Group chưa có thành viên nào</div>';
+            return;
+        }
+        body.innerHTML = members.map(m=>`
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-secondary);border-radius:var(--r-sm);">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--azure),var(--azure-purple,#8764b8));color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                        ${(m.name||m.sam||'?')[0].toUpperCase()}
+                    </div>
+                    <div>
+                        <div style="font-size:13px;font-weight:600;color:var(--text);">${m.name||m.sam}</div>
+                        <div style="font-size:11px;color:var(--text-muted);font-family:monospace;">${m.sam||''}</div>
+                    </div>
+                </div>
+                <button onclick="removeMemberFromGroup('${m.sam}')"
+                    style="width:24px;height:24px;border-radius:50%;border:none;background:var(--danger-bg);color:var(--danger);cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;">✕</button>
+            </div>
+        `).join('');
+    })
+    .catch(()=>{ body.innerHTML='<div style="color:var(--danger);padding:20px;text-align:center;">Lỗi tải thành viên</div>'; });
+}
+
+function addMemberToGroup() {
+    const sel = document.getElementById('gm_add_user_select');
+    const sam = sel ? sel.value : '';
+    if (!sam) { showToast('Vui lòng chọn user', 'warning'); return; }
+    fetch('/api/add-user-group', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({username: sam, group: _currentGroup})
+    }).then(r=>r.json()).then(d=>{
+        if (d.status==='success') {
+            showToast(`Đã thêm ${sam} vào ${_currentGroup}`, 'success');
+            loadGroupMembers(_currentGroup);
+            sel.value = '';
+        } else showToast(d.message||'Thất bại','danger');
+    }).catch(()=>showToast('Lỗi kết nối','danger'));
+}
+
+function removeMemberFromGroup(sam) {
+    if (!confirm(`Xóa "${sam}" khỏi group "${_currentGroup}"?`)) return;
+    fetch('/api/remove-user-group', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({username: sam, group: _currentGroup})
+    }).then(r=>r.json()).then(d=>{
+        if (d.status==='success') {
+            showToast(`Đã xóa ${sam} khỏi ${_currentGroup}`, 'success');
+            loadGroupMembers(_currentGroup);
+        } else showToast(d.message||'Thất bại','danger');
+    }).catch(()=>showToast('Lỗi kết nối','danger'));
+}
+
+function filterGroupTable() {
+    const f = document.getElementById('groupSearchInput').value.toUpperCase();
+    const rows = document.getElementById('groupTable').getElementsByTagName('tr');
+    for (let i=1;i<rows.length;i++) {
+        const t = Array.from(rows[i].getElementsByTagName('td')).map(c=>c.textContent).join(' ').toUpperCase();
+        rows[i].style.display = t.includes(f)?'':'none';
+    }
+}
+
+// ─────────────────────── COMPUTER MANAGEMENT ───────────────────────
+let _allComputers = [];
+
+function switchComputerTab(tab) {
+    const isAssets = tab === 'assets';
+    document.getElementById('tab_panel_assets').style.display = isAssets ? '' : 'none';
+    document.getElementById('tab_panel_domain').style.display = isAssets ? 'none' : '';
+    document.getElementById('tab_assets').style.background = isAssets ? 'var(--azure)' : 'var(--bg-secondary)';
+    document.getElementById('tab_assets').style.color = isAssets ? '#fff' : 'var(--text-soft)';
+    document.getElementById('tab_domain').style.background = !isAssets ? 'var(--azure)' : 'var(--bg-secondary)';
+    document.getElementById('tab_domain').style.color = !isAssets ? '#fff' : 'var(--text-soft)';
+    if (!isAssets) loadDomainComputers();
+}
+
+function loadAssets() {
+    fetch('/api/computers').then(r=>r.json()).then(data=>{
+        _allComputers = data.computers || [];
+        renderAssetTable(_allComputers);
+    }).catch(()=>showToast('Lỗi tải danh sách máy','danger'));
+}
+
+function renderAssetTable(list) {
+    const tbody = document.getElementById('assetTableBody');
+    if (!list.length) {
+        tbody.innerHTML='<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text-muted);">Chưa có máy nào. Bấm "+ Thêm Máy" để bắt đầu.</td></tr>';
+        return;
+    }
+    const statusLabel = {in_use:'<span class="badge badge-success">Đang dùng</span>', storage:'<span class="badge badge-secondary">Lưu kho</span>'};
+    tbody.innerHTML = list.map(c=>`
+        <tr data-status="${c.status}">
+            <td><strong style="font-family:monospace;">${c.computer_name||''}</strong></td>
+            <td style="font-size:12px;">${c.cpu||'—'}</td>
+            <td style="font-size:12px;">${c.ram||'—'}</td>
+            <td style="font-size:12px;">${c.ssd||'—'}</td>
+            <td style="font-size:12px;">${c.hdd||'—'}</td>
+            <td style="font-size:12px;">${c.os_windows||'—'}</td>
+            <td style="font-size:12px;">${c.project||'—'}</td>
+            <td style="font-size:12px;">${c.location||'—'}</td>
+            <td>${statusLabel[c.status]||c.status}</td>
+            <td style="font-size:12px;color:var(--text-soft);max-width:150px;">${c.notes||''}</td>
+            <td>
+                <div style="display:flex;gap:4px;">
+                    <button class="btn btn-ghost btn-sm" onclick="openEditComputerModal(${c.id})">✏</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteComputer(${c.id},'${c.computer_name}')">🗑</button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function filterAssetTable() {
+    const f = document.getElementById('assetSearchInput').value.toUpperCase();
+    const s = document.getElementById('assetStatusFilter').value;
+    const rows = document.getElementById('assetTable').getElementsByTagName('tr');
+    for (let i=1;i<rows.length;i++) {
+        const row = rows[i];
+        const t = Array.from(row.getElementsByTagName('td')).map(c=>c.textContent).join(' ').toUpperCase();
+        const st = row.dataset.status||'';
+        row.style.display = ((!f||t.includes(f))&&(!s||st===s))?'':'none';
+    }
+}
+
+function filterDomainComputerTable() {
+    const f = document.getElementById('domainComputerSearch').value.toUpperCase();
+    const rows = document.getElementById('domainComputerTable').getElementsByTagName('tr');
+    for (let i=1;i<rows.length;i++) {
+        const t = Array.from(rows[i].getElementsByTagName('td')).map(c=>c.textContent).join(' ').toUpperCase();
+        rows[i].style.display = t.includes(f)?'':'none';
+    }
+}
+
+let _domainComputersLoaded = false;
+function loadDomainComputers() {
+    if (_domainComputersLoaded) return;
+    const tbody = document.getElementById('domainComputerTableBody');
+    tbody.innerHTML='<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted);">Đang tải từ AD...</td></tr>';
+    fetch('/api/domain-computers').then(r=>r.json()).then(data=>{
+        _domainComputersLoaded = true;
+        const comps = data.computers||[];
+        if (!comps.length) {
+            tbody.innerHTML='<tr><td colspan="3" style="text-align:center;padding:30px;color:var(--text-muted);">Không có máy nào trong domain</td></tr>';
+            return;
+        }
+        tbody.innerHTML = comps.map(c=>`
+            <tr>
+                <td><strong style="font-family:monospace;">${c.name||''}</strong></td>
+                <td style="font-size:12px;">${c.os||'—'}</td>
+                <td style="font-size:11px;color:var(--text-muted);">${c.dn||''}</td>
+            </tr>
+        `).join('');
+    }).catch(()=>{ tbody.innerHTML='<tr><td colspan="3" style="text-align:center;color:var(--danger);padding:20px;">Lỗi tải dữ liệu domain</td></tr>'; });
+}
+
+function openAddComputerModal() {
+    document.getElementById('computerModalTitle').textContent = '+ Thêm Máy Tính';
+    ['cm_id','cm_name','cm_cpu','cm_ram','cm_ssd','cm_hdd','cm_os','cm_project','cm_location','cm_notes'].forEach(id=>{
+        const el=document.getElementById(id); if(el) el.value='';
+    });
+    document.getElementById('cm_status').value='in_use';
+    document.getElementById('computerModal').classList.add('show');
+    setTimeout(()=>{ const n=document.getElementById('cm_name'); if(n)n.focus(); },100);
+}
+
+function openEditComputerModal(id) {
+    const c = _allComputers.find(x=>x.id===id);
+    if (!c) return;
+    document.getElementById('computerModalTitle').textContent = '✏ Chỉnh sửa: ' + c.computer_name;
+    document.getElementById('cm_id').value      = c.id;
+    document.getElementById('cm_name').value    = c.computer_name||'';
+    document.getElementById('cm_cpu').value     = c.cpu||'';
+    document.getElementById('cm_ram').value     = c.ram||'';
+    document.getElementById('cm_ssd').value     = c.ssd||'';
+    document.getElementById('cm_hdd').value     = c.hdd||'';
+    document.getElementById('cm_os').value      = c.os_windows||'';
+    document.getElementById('cm_project').value = c.project||'';
+    document.getElementById('cm_location').value= c.location||'';
+    document.getElementById('cm_status').value  = c.status||'in_use';
+    document.getElementById('cm_notes').value   = c.notes||'';
+    document.getElementById('computerModal').classList.add('show');
+}
+
+function saveComputer() {
+    const id   = document.getElementById('cm_id').value;
+    const name = document.getElementById('cm_name').value.trim();
+    if (!name) { showToast('Vui lòng nhập tên máy','warning'); return; }
+    const data = {
+        computer_name: name,
+        cpu:        document.getElementById('cm_cpu').value,
+        ram:        document.getElementById('cm_ram').value,
+        ssd:        document.getElementById('cm_ssd').value,
+        hdd:        document.getElementById('cm_hdd').value,
+        os_windows: document.getElementById('cm_os').value,
+        project:    document.getElementById('cm_project').value,
+        location:   document.getElementById('cm_location').value,
+        status:     document.getElementById('cm_status').value,
+        notes:      document.getElementById('cm_notes').value,
+    };
+    const url    = id ? `/api/computers/${id}` : '/api/computers';
+    const method = id ? 'PUT' : 'POST';
+    fetch(url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) })
+    .then(r=>r.json()).then(d=>{
+        if (d.status==='success') {
+            closeModal('computerModal');
+            showToast(id?'Đã cập nhật máy tính':'Đã thêm máy tính mới','success');
+            loadAssets();
+        } else showToast(d.message||'Lỗi lưu dữ liệu','danger');
+    }).catch(()=>showToast('Lỗi kết nối','danger'));
+}
+
+function deleteComputer(id, name) {
+    if (!confirm(`Xóa máy "${name}" khỏi danh sách tài sản?`)) return;
+    fetch(`/api/computers/${id}`, {method:'DELETE'})
+    .then(r=>r.json()).then(d=>{
+        if (d.status==='success') { showToast(`Đã xóa ${name}`,'success'); loadAssets(); }
+        else showToast(d.message||'Lỗi xóa','danger');
+    }).catch(()=>showToast('Lỗi kết nối','danger'));
+}
+
+function importComputerCSV(input) {
+    const file = input.files[0]; if(!file) return;
+    const form = new FormData(); form.append('file', file);
+    showLoading();
+    fetch('/api/import-computers', {method:'POST', body:form})
+    .then(r=>r.json()).then(d=>{
+        hideLoading(); input.value='';
+        if (d.status==='success') { showToast(`Import thành công ${d.count} máy`,'success'); loadAssets(); }
+        else showToast(d.message||'Lỗi import','danger');
+    }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối','danger'); });
+}
+
+// ─────────────────────── EDIT USER: OU + Save ───────────────────────
+function openUserEditModal(btn) {
+    _euSam    = btn.dataset.sam    || '';
+    _euGroups = (btn.dataset.groups || '').split(',').map(g=>g.trim()).filter(Boolean);
+    const isActive = btn.dataset.enabled === 'true';
+    document.getElementById('eu_sam').textContent  = _euSam;
+    if (document.getElementById('eu_new_sam'))      document.getElementById('eu_new_sam').value      = '';
+    if (document.getElementById('eu_display_name')) document.getElementById('eu_display_name').value = btn.dataset.name || '';
+    if (document.getElementById('eu_password'))     document.getElementById('eu_password').value     = '';
+    // OU hiện tại
+    const dn = btn.dataset.dn || '';
+    const ouEl = document.getElementById('eu_current_ou');
+    if (ouEl) {
+        // Lấy phần OU từ DN (bỏ CN=username đầu tiên)
+        const ouPart = dn.split(',').slice(1).join(',');
+        ouEl.textContent = ouPart || '—';
+    }
+    euSetStatus(isActive);
+    euRenderGroups();
+    euRenderSelect();
+    loadEditOuSelect();
+    document.getElementById('userEditModal').classList.add('show');
 }
 
 // ─────────────────────── INIT ───────────────────────
@@ -1565,7 +1820,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Modal close on backdrop click
-    ['passwordModal','revokeModal','userEditModal','createGroupModal','groupMembersModal'].forEach(id => {
+    ['passwordModal','revokeModal','userEditModal','createGroupModal','groupMembersModal','computerModal'].forEach(id => {
         const m = document.getElementById(id);
         if (m) m.addEventListener('click', e => { if (e.target===m) m.classList.remove('show'); });
     });
