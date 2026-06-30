@@ -90,6 +90,7 @@ def init_db():
         # 6. Bảng tài sản máy tính
         """CREATE TABLE IF NOT EXISTS computers (
             id            SERIAL PRIMARY KEY,
+            asset_code    VARCHAR(64),
             computer_name VARCHAR(255) NOT NULL,
             cpu           VARCHAR(255),
             ram           VARCHAR(64),
@@ -117,7 +118,10 @@ def init_db():
         # 8. Migration: thêm cột còn thiếu nếu bảng computers đã tồn tại từ bản cũ
         """ALTER TABLE computers ADD COLUMN IF NOT EXISTS assigned_user VARCHAR(128)""",
 
-        # 9. Migration: chuyển dữ liệu assigned_user cũ (cột rời rạc) sang user_computers
+        # 9. Migration: thêm cột asset_code nếu chưa có
+        """ALTER TABLE computers ADD COLUMN IF NOT EXISTS asset_code VARCHAR(64)""",
+
+        # 10. Migration: chuyển dữ liệu assigned_user cũ (cột rời rạc) sang user_computers
         #    (nguồn chân lý duy nhất) — chỉ chạy 1 lần, không ảnh hưởng nếu đã rỗng/đã chuyển
         """INSERT INTO user_computers (sam_account_name, computer_id)
            SELECT TRIM(assigned_user), id FROM computers
@@ -1011,7 +1015,7 @@ def api_get_computers():
         # Lấy assigned_user từ bảng user_computers (nguồn chân lý duy nhất),
         # gộp nhiều user thành chuỗi nếu 1 máy gán cho nhiều người
         cur.execute("""
-            SELECT c.id, c.computer_name, c.cpu, c.ram, c.ssd, c.hdd, c.os_windows,
+            SELECT c.id, c.asset_code, c.computer_name, c.cpu, c.ram, c.ssd, c.hdd, c.os_windows,
                    c.project, c.location, c.status, c.notes, c.updated_at,
                    COALESCE(string_agg(uc.sam_account_name, ', ' ORDER BY uc.sam_account_name), '') AS assigned_users
             FROM computers c
@@ -1020,7 +1024,7 @@ def api_get_computers():
             ORDER BY c.id DESC
         """)
         rows = cur.fetchall()
-        cols = ['id','computer_name','cpu','ram','ssd','hdd','os_windows',
+        cols = ['id','asset_code','computer_name','cpu','ram','ssd','hdd','os_windows',
                 'project','location','status','notes','updated_at','assigned_user']
         result = []
         for r in rows:
@@ -1039,9 +1043,9 @@ def api_create_computer():
     try:
         cur.execute("""
             INSERT INTO computers
-              (computer_name,cpu,ram,ssd,hdd,os_windows,project,location,status,notes,updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
-        """, (data.get('computer_name',''), data.get('cpu',''), data.get('ram',''),
+              (asset_code,computer_name,cpu,ram,ssd,hdd,os_windows,project,location,status,notes,updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
+        """, (data.get('asset_code',''), data.get('computer_name',''), data.get('cpu',''), data.get('ram',''),
               data.get('ssd',''), data.get('hdd',''), data.get('os_windows',''),
               data.get('project',''), data.get('location',''),
               data.get('status','in_use'), data.get('notes','')))
@@ -1070,10 +1074,10 @@ def api_update_computer(cid):
     conn = get_db_connection(); cur = conn.cursor()
     try:
         cur.execute("""
-            UPDATE computers SET computer_name=%s,cpu=%s,ram=%s,ssd=%s,hdd=%s,
+            UPDATE computers SET asset_code=%s,computer_name=%s,cpu=%s,ram=%s,ssd=%s,hdd=%s,
             os_windows=%s,project=%s,location=%s,status=%s,notes=%s,updated_at=NOW()
             WHERE id=%s
-        """, (data.get('computer_name',''), data.get('cpu',''), data.get('ram',''),
+        """, (data.get('asset_code',''), data.get('computer_name',''), data.get('cpu',''), data.get('ram',''),
               data.get('ssd',''), data.get('hdd',''), data.get('os_windows',''),
               data.get('project',''), data.get('location',''),
               data.get('status','in_use'), data.get('notes',''), cid))
@@ -1135,7 +1139,7 @@ def api_domain_computers():
 def export_computers_csv():
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute("""
-        SELECT c.computer_name,c.cpu,c.ram,c.ssd,c.hdd,c.os_windows,c.project,c.location,c.status,
+        SELECT c.asset_code,c.computer_name,c.cpu,c.ram,c.ssd,c.hdd,c.os_windows,c.project,c.location,c.status,
                COALESCE(string_agg(uc.sam_account_name, ', ' ORDER BY uc.sam_account_name), '') AS assigned_user,
                c.notes
         FROM computers c
@@ -1144,10 +1148,10 @@ def export_computers_csv():
     """)
     rows = cur.fetchall(); cur.close(); conn.close()
     si = io.StringIO(); cw = csv.writer(si)
-    cw.writerow(['Tên Máy','CPU','RAM','SSD','HDD','Windows','Dự Án','Vị Trí','Tình Trạng','User','Ghi Chú'])
+    cw.writerow(['Mã Tài Sản','Tên Máy','CPU','RAM','SSD','HDD','Windows','Dự Án','Vị Trí','Tình Trạng','User','Ghi Chú'])
     smap = {'in_use':'Đang sử dụng','storage':'Lưu kho'}
     for r in rows:
-        row = list(r); row[8] = smap.get(row[8], row[8]); cw.writerow(row)
+        row = list(r); row[9] = smap.get(row[9], row[9]); cw.writerow(row)
     write_log(session['user'], 'EXPORT_CSV', detail='Exported computers CSV')
     output = make_response(si.getvalue())
     output.headers["Content-Disposition"] = "attachment; filename=computers.csv"
@@ -1169,9 +1173,9 @@ def api_import_computers():
         for row in reader:
             st = 'in_use' if 'dụng' in row.get('Tình Trạng','') else 'storage'
             cur.execute("""
-                INSERT INTO computers (computer_name,cpu,ram,ssd,hdd,os_windows,project,location,status,notes,updated_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
-            """, (row.get('Tên Máy',''), row.get('CPU',''), row.get('RAM',''),
+                INSERT INTO computers (asset_code,computer_name,cpu,ram,ssd,hdd,os_windows,project,location,status,notes,updated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
+            """, (row.get('Mã Tài Sản',''), row.get('Tên Máy',''), row.get('CPU',''), row.get('RAM',''),
                   row.get('SSD',''), row.get('HDD',''), row.get('Windows',''),
                   row.get('Dự Án',''), row.get('Vị Trí',''), st, row.get('Ghi Chú','')))
             new_id = cur.fetchone()[0]
