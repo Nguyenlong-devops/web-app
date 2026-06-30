@@ -752,12 +752,13 @@
                                 <th onclick="sortTable('assetTable',6)" style="cursor:pointer;user-select:none;">Dự Án <span>⇅</span></th>
                                 <th onclick="sortTable('assetTable',7)" style="cursor:pointer;user-select:none;">Vị Trí <span>⇅</span></th>
                                 <th onclick="sortTable('assetTable',8)" style="cursor:pointer;user-select:none;">Tình Trạng <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',9)" style="cursor:pointer;user-select:none;">User <span>⇅</span></th>
                                 <th>Ghi Chú</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="assetTableBody">
-                            <tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text-muted);">Đang tải...</td></tr>
+                            <tr><td colspan="12" style="text-align:center;padding:30px;color:var(--text-muted);">Đang tải...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -944,110 +945,139 @@
 
 <!-- ══════════════════ MODAL: Edit User AD ══════════════════ -->
 <div id="userEditModal" class="modal">
-    <div class="modal-content" style="max-width:600px;">
+    <div class="modal-content eu-modal-content">
         <div class="modal-header">
-            <div class="modal-title">✏ Chỉnh sửa User AD</div>
+            <div class="modal-title">✏ Chỉnh sửa: <span id="eu_sam" class="eu-mono"></span></div>
             <button class="close-btn" onclick="closeUserModal()">✕</button>
         </div>
-        <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;max-height:75vh;overflow-y:auto;">
 
-            <!-- 1: Thông tin -->
-            <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
-                <div style="padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border-light);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);display:flex;align-items:center;gap:8px;">
-                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;">1</span>
-                    Thông Tin Tài Khoản
-                </div>
-                <div style="padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-                    <div>
-                        <div class="eu-label">Username (SamAccountName) hiện tại</div>
-                        <div id="eu_sam" class="eu-value eu-mono"></div>
-                    </div>
-                    <div>
-                        <div class="eu-label">Username mới (để trống = giữ nguyên)</div>
-                        <input type="text" id="eu_new_sam" placeholder="Đổi username đăng nhập..."
-                            style="width:100%;height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;font-family:monospace;outline:none;">
-                    </div>
-                    <div>
-                        <div class="eu-label">Tên hiển thị (AD Name / Rename)</div>
-                        <input type="text" id="eu_display_name" placeholder="Tên hiển thị trong AD..."
-                            style="width:100%;height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;outline:none;">
-                        <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Tương đương chuột phải → Rename trong AD</div>
-                    </div>
-                    <div>
-                        <div class="eu-label">Mật Khẩu Mới (để trống = không đổi)</div>
-                        <input type="password" id="eu_password" placeholder="Mật khẩu mới..."
-                            style="width:100%;height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;outline:none;">
-                    </div>
-                </div>
-            </div>
+        <!-- Tabs -->
+        <div class="eu-tabs">
+            <button class="eu-tab active" data-tab="info" onclick="euSwitchTab('info')">👤 Thông Tin</button>
+            <button class="eu-tab" data-tab="group" onclick="euSwitchTab('group')">👥 Group</button>
+            <button class="eu-tab" data-tab="computer" onclick="euSwitchTab('computer')">🖥 Computer</button>
+        </div>
 
-            <!-- 2: Trạng thái -->
-            <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
-                <div style="padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border-light);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);display:flex;align-items:center;gap:8px;">
-                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;">2</span>
-                    Trạng Thái
+        <div class="modal-body eu-body">
+
+            <!-- TAB: Thông tin -->
+            <div id="eu_tab_info" class="eu-tab-panel">
+                <div class="eu-grid-2">
+                    <div class="eu-field">
+                        <label class="eu-label">Username mới (để trống = giữ nguyên)</label>
+                        <input type="text" id="eu_new_sam" class="eu-input eu-mono" placeholder="Đổi username...">
+                    </div>
+                    <div class="eu-field">
+                        <label class="eu-label">Mật khẩu mới (để trống = không đổi)</label>
+                        <input type="password" id="eu_password" class="eu-input" placeholder="Mật khẩu mới...">
+                    </div>
+                    <div class="eu-field" style="grid-column:1/-1;">
+                        <label class="eu-label">Tên hiển thị (AD Rename)</label>
+                        <input type="text" id="eu_display_name" class="eu-input" placeholder="Tên hiển thị trong AD...">
+                        <div class="eu-hint">Tương đương chuột phải → Rename trong AD</div>
+                    </div>
                 </div>
-                <div style="padding:14px;display:flex;gap:10px;">
-                    <button type="button" id="eu_btn_active" onclick="euSetStatus(true)"
-                        style="flex:1;padding:9px 0;border-radius:6px;border:2px solid;font-weight:600;font-size:13px;cursor:pointer;transition:all .15s;">✅ Active</button>
-                    <button type="button" id="eu_btn_disabled" onclick="euSetStatus(false)"
-                        style="flex:1;padding:9px 0;border-radius:6px;border:2px solid;font-weight:600;font-size:13px;cursor:pointer;transition:all .15s;">❌ Disabled</button>
+
+                <div class="eu-divider"></div>
+
+                <div class="eu-status-row">
+                    <button type="button" id="eu_btn_active" class="eu-status-btn" onclick="euSetStatus(true)">✅ Active</button>
+                    <button type="button" id="eu_btn_disabled" class="eu-status-btn" onclick="euSetStatus(false)">❌ Disabled</button>
                     <input type="hidden" id="eu_status">
                 </div>
+
+                <div class="eu-divider"></div>
+
+                <label class="eu-label">Di chuyển sang OU khác (để trống = giữ nguyên)</label>
+                <select id="eu_ou_select" class="eu-select">
+                    <option value="">— Giữ nguyên OU hiện tại —</option>
+                </select>
+                <div class="eu-hint">OU hiện tại: <span id="eu_current_ou" class="eu-mono"></span></div>
             </div>
 
-            <!-- 3: Di chuyển OU -->
-            <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
-                <div style="padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border-light);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);display:flex;align-items:center;gap:8px;">
-                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;">3</span>
-                    Vị Trí OU
+            <!-- TAB: Group -->
+            <div id="eu_tab_group" class="eu-tab-panel" style="display:none;">
+                <label class="eu-label">Groups hiện tại — bấm ✕ để xóa</label>
+                <div id="eu_current_groups" class="eu-pill-box"></div>
+                <label class="eu-label" style="margin-top:14px;">Thêm vào Group</label>
+                <div class="eu-row-select-btn">
+                    <select id="eu_group_select" class="eu-select"></select>
+                    <button type="button" id="eu_add_btn" class="eu-btn-blue" onclick="euAddGroup()">+ Thêm</button>
                 </div>
-                <div style="padding:14px;">
-                    <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Di chuyển sang OU khác (để trống = giữ nguyên)</div>
-                    <select id="eu_ou_select"
-                        style="width:100%;height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;outline:none;">
-                        <option value="">— Giữ nguyên OU hiện tại —</option>
-                    </select>
-                    <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">OU hiện tại: <span id="eu_current_ou" style="font-family:monospace;"></span></div>
-                </div>
+                <div class="eu-note" style="margin-top:14px;">ℹ Thay đổi Group áp dụng ngay lên AD, không cần bấm Lưu.</div>
             </div>
 
-            <!-- 4: Group -->
-            <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
-                <div style="padding:8px 14px;background:var(--bg-secondary);border-bottom:1px solid var(--border-light);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);display:flex;align-items:center;gap:8px;">
-                    <span style="width:18px;height:18px;border-radius:50%;background:var(--azure);color:#fff;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;">4</span>
-                    Quản Lý Group
+            <!-- TAB: Computer -->
+            <div id="eu_tab_computer" class="eu-tab-panel" style="display:none;">
+                <label class="eu-label">Computer đang gán — bấm ✕ để bỏ gán</label>
+                <div id="eu_current_computers" class="eu-pill-box"></div>
+                <label class="eu-label" style="margin-top:14px;">Gán thêm Computer (chỉ máy đang sử dụng)</label>
+                <div class="eu-row-select-btn">
+                    <select id="eu_computer_select" class="eu-select"></select>
+                    <button type="button" id="eu_add_computer_btn" class="eu-btn-blue" onclick="euAddComputer()">+ Gán</button>
                 </div>
-                <div style="padding:14px;display:flex;flex-direction:column;gap:10px;">
-                    <div>
-                        <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Groups hiện tại — bấm ✕ để xóa</div>
-                        <div id="eu_current_groups" style="min-height:36px;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;"></div>
-                    </div>
-                    <div>
-                        <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">Thêm vào Group</div>
-                        <div style="display:grid;grid-template-columns:1fr 80px;gap:8px;">
-                            <select id="eu_group_select" style="height:36px;padding:0 8px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;width:100%;min-width:0;"></select>
-                            <button type="button" id="eu_add_btn" onclick="euAddGroup()" style="height:36px;background:#0078d4;color:#fff;border:none;border-radius:4px;font-weight:700;font-size:12px;cursor:pointer;">+ Thêm</button>
-                        </div>
-                    </div>
-                </div>
+                <div class="eu-note" style="margin-top:14px;">ℹ Gán/Bỏ gán Computer áp dụng ngay, không cần bấm Lưu.</div>
             </div>
 
-            <div style="padding:10px 12px;background:var(--info-bg);border-radius:6px;font-size:12px;color:var(--info);">
-                ℹ Thay đổi Group áp dụng ngay lên AD. Bấm "Lưu" để cập nhật các thông tin còn lại.
-            </div>
         </div>
+
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeUserModal()">Đóng</button>
-            <button type="button" class="btn btn-primary" onclick="euSaveAll()">💾 Lưu Thay Đổi</button>
+            <button type="button" class="btn btn-primary" onclick="euSaveAll()">💾 Lưu Thông Tin Tài Khoản</button>
         </div>
     </div>
 </div>
 
 <style>
-.eu-label { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-soft);margin-bottom:4px;display:block; }
-.eu-value { padding:7px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;font-size:14px;color:var(--text);min-height:34px;display:flex;align-items:center; }
-.eu-mono  { font-family:monospace;font-weight:700;color:var(--azure); }
+.eu-modal-content { max-width: 580px; width: 92vw; }
+.eu-tabs { display: flex; gap: 2px; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); }
+.eu-tab {
+    padding: 10px 16px; border: none; background: transparent; color: var(--text-soft);
+    font-weight: 600; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent;
+    transition: all .15s;
+}
+.eu-tab:hover { color: var(--azure); }
+.eu-tab.active { color: var(--azure); border-bottom-color: var(--azure); }
+.eu-body { display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; padding: 18px 20px; }
+.eu-tab-panel { display: flex; flex-direction: column; }
+.eu-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.eu-field { display: flex; flex-direction: column; }
+.eu-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--text-soft); margin-bottom: 5px; display: block;
+}
+.eu-mono { font-family: 'Cascadia Code', Consolas, monospace; font-weight: 600; color: var(--azure); }
+.eu-input, .eu-select {
+    width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--border-strong);
+    border-radius: 5px; background: var(--card); color: var(--text); font-size: 13px;
+    outline: none; box-sizing: border-box;
+}
+.eu-input:focus, .eu-select:focus { border-color: var(--azure); box-shadow: 0 0 0 2px var(--azure-glow); }
+.eu-divider { height: 1px; background: var(--border-light); margin: 16px 0; }
+.eu-status-row { display: flex; gap: 10px; }
+.eu-status-btn {
+    flex: 1; height: 40px; border-radius: 6px; border: 2px solid var(--border);
+    background: var(--card); color: var(--text-soft); font-weight: 600; font-size: 13px;
+    cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.eu-status-btn.eu-status-active { border-color: var(--success) !important; background: var(--success-bg) !important; color: var(--success) !important; }
+.eu-status-btn.eu-status-danger { border-color: var(--danger) !important; background: var(--danger-bg) !important; color: var(--danger) !important; }
+.eu-hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+.eu-pill-box {
+    min-height: 40px; padding: 8px; background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+}
+.eu-row-select-btn { display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
+.eu-btn-blue {
+    height: 36px; background: #0078d4; color: #ffffff; border: none; border-radius: 5px;
+    font-weight: 700; font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.eu-btn-blue:hover { background: #106ebe; }
+.eu-note { padding: 10px 12px; background: var(--info-bg); border-radius: 6px; font-size: 12px; color: var(--info); }
+@media (max-width: 560px) {
+    .eu-grid-2 { grid-template-columns: 1fr; }
+    .eu-row-select-btn { grid-template-columns: 1fr; }
+}
 </style>
 
 <!-- Danh sách toàn bộ AD Group (dùng cho modal Edit User) -->
@@ -1338,25 +1368,6 @@ let _editGroups = [];   // groups user đang có (sync real-time)
 let _euSam    = '';
 let _euGroups = [];   // groups hiện tại của user
 
-function openUserEditModal(btn) {
-    _euSam    = btn.dataset.sam    || '';
-    _euGroups = (btn.dataset.groups || '').split(',').map(g => g.trim()).filter(Boolean);
-
-    const isActive = btn.dataset.enabled === 'true';
-
-    document.getElementById('eu_sam').textContent  = _euSam;
-    // Populate editable fields
-    if (document.getElementById('eu_new_sam'))      document.getElementById('eu_new_sam').value      = '';
-    if (document.getElementById('eu_display_name')) document.getElementById('eu_display_name').value = btn.dataset.name || '';
-    if (document.getElementById('eu_password'))     document.getElementById('eu_password').value     = '';
-
-    euSetStatus(isActive);
-    euRenderGroups();
-    euRenderSelect();
-
-    document.getElementById('userEditModal').classList.add('show');
-}
-
 function closeUserModal() {
     document.getElementById('userEditModal').classList.remove('show');
 }
@@ -1639,7 +1650,7 @@ function loadAssets() {
 function renderAssetTable(list) {
     const tbody = document.getElementById('assetTableBody');
     if (!list.length) {
-        tbody.innerHTML='<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text-muted);">Chưa có máy nào. Bấm "+ Thêm Máy" để bắt đầu.</td></tr>';
+        tbody.innerHTML='<tr><td colspan="12" style="text-align:center;padding:30px;color:var(--text-muted);">Chưa có máy nào. Bấm "+ Thêm Máy" để bắt đầu.</td></tr>';
         return;
     }
     const statusLabel = {in_use:'<span class="badge badge-success">Đang dùng</span>', storage:'<span class="badge badge-secondary">Lưu kho</span>'};
@@ -1654,10 +1665,11 @@ function renderAssetTable(list) {
             <td style="font-size:12px;">${c.project||'—'}</td>
             <td style="font-size:12px;">${c.location||'—'}</td>
             <td>${statusLabel[c.status]||c.status}</td>
+            <td style="font-size:12px;">${c.assigned_user ? `<code>${c.assigned_user}</code>` : '<span style="color:var(--text-muted);">—</span>'}</td>
             <td style="font-size:12px;color:var(--text-soft);max-width:150px;">${c.notes||''}</td>
             <td>
                 <div style="display:flex;gap:4px;">
-                    <button class="btn btn-ghost btn-sm" onclick="openEditComputerModal(${c.id})">✏</button>
+                    <button class="btn btn-ghost btn-sm" onclick="openEditComputerModal(${c.id})">✏ Sửa</button>
                     <button class="btn btn-danger btn-sm" onclick="deleteComputer(${c.id},'${c.computer_name}')">🗑</button>
                 </div>
             </td>
@@ -1785,28 +1797,123 @@ function importComputerCSV(input) {
     }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối','danger'); });
 }
 
-// ─────────────────────── EDIT USER: OU + Save ───────────────────────
+// ─────────────────────── EDIT USER: TABS ───────────────────────
+function euSwitchTab(tab) {
+    ['info','group','computer'].forEach(t => {
+        document.getElementById('eu_tab_'+t).style.display = (t===tab) ? '' : 'none';
+        const btn = document.querySelector('.eu-tab[data-tab="'+t+'"]');
+        if (btn) btn.classList.toggle('active', t===tab);
+    });
+}
+
+// ─────────────────────── EDIT USER: OPEN MODAL ───────────────────────
 function openUserEditModal(btn) {
     _euSam    = btn.dataset.sam    || '';
     _euGroups = (btn.dataset.groups || '').split(',').map(g=>g.trim()).filter(Boolean);
     const isActive = btn.dataset.enabled === 'true';
+
     document.getElementById('eu_sam').textContent  = _euSam;
     if (document.getElementById('eu_new_sam'))      document.getElementById('eu_new_sam').value      = '';
     if (document.getElementById('eu_display_name')) document.getElementById('eu_display_name').value = btn.dataset.name || '';
     if (document.getElementById('eu_password'))     document.getElementById('eu_password').value     = '';
-    // OU hiện tại
+
+    // OU hiện tại — lấy từ DistinguishedName, bỏ phần CN=username đầu tiên
     const dn = btn.dataset.dn || '';
     const ouEl = document.getElementById('eu_current_ou');
     if (ouEl) {
-        // Lấy phần OU từ DN (bỏ CN=username đầu tiên)
         const ouPart = dn.split(',').slice(1).join(',');
         ouEl.textContent = ouPart || '—';
     }
+
     euSetStatus(isActive);
     euRenderGroups();
     euRenderSelect();
+    euLoadComputers();
     loadEditOuSelect();
+    euSwitchTab('info');
+
     document.getElementById('userEditModal').classList.add('show');
+}
+
+// ─────────────────────── EDIT USER: COMPUTER ASSIGNMENT ───────────────────────
+let _euComputers = [];  // computer hiện tại đang gán cho user
+
+function euLoadComputers() {
+    fetch('/api/user-computers/' + encodeURIComponent(_euSam))
+        .then(r => r.json())
+        .then(data => {
+            _euComputers = data.computers || [];
+            euRenderComputers();
+            euRenderComputerSelect();
+        })
+        .catch(() => { _euComputers = []; euRenderComputers(); });
+}
+
+function euRenderComputers() {
+    const wrap = document.getElementById('eu_current_computers');
+    if (!wrap) return;
+    if (!_euComputers.length) {
+        wrap.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">Chưa gán computer nào</span>';
+        return;
+    }
+    wrap.innerHTML = _euComputers.map(c => `
+        <span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;background:var(--info-bg);color:var(--info);border:1px solid var(--info-border);font-size:12px;font-weight:600;">
+            🖥 ${c.computer_name}
+            <button onclick="euRemoveComputer(${c.id})" title="Bỏ gán"
+                style="width:15px;height:15px;border-radius:50%;border:none;background:var(--info);color:#fff;cursor:pointer;font-size:9px;display:inline-flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;">✕</button>
+        </span>
+    `).join('');
+}
+
+function euRenderComputerSelect() {
+    const sel = document.getElementById('eu_computer_select');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Đang tải...</option>';
+    sel.disabled = true;
+    fetch('/api/computers').then(r=>r.json()).then(data=>{
+        sel.disabled = false;
+        const assignedIds = _euComputers.map(c=>c.id);
+        const available = (data.computers||[]).filter(c => c.status === 'in_use' && !assignedIds.includes(c.id));
+        sel.innerHTML = '<option value="">— Chọn máy —</option>';
+        if (!available.length) {
+            sel.innerHTML += '<option disabled>(Không còn máy nào để gán)</option>';
+            return;
+        }
+        available.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.computer_name + (c.cpu ? ' — '+c.cpu : '');
+            sel.appendChild(opt);
+        });
+    }).catch(()=>{ sel.disabled=false; sel.innerHTML='<option value="">(Lỗi tải)</option>'; });
+}
+
+function euAddComputer() {
+    const sel = document.getElementById('eu_computer_select');
+    const cid = sel ? sel.value : '';
+    if (!cid) { showToast('Vui lòng chọn máy', 'warning'); return; }
+    fetch('/api/user-computers', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({username: _euSam, computer_id: parseInt(cid)})
+    }).then(r=>r.json()).then(d=>{
+        if (d.status === 'success') {
+            showToast('Đã gán máy thành công', 'success');
+            euLoadComputers();
+        } else showToast(d.message || 'Thất bại', 'danger');
+    }).catch(()=>showToast('Lỗi kết nối', 'danger'));
+}
+
+function euRemoveComputer(cid) {
+    if (!confirm('Bỏ gán máy này khỏi user?')) return;
+    fetch('/api/user-computers', {
+        method: 'DELETE', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({username: _euSam, computer_id: cid})
+    }).then(r=>r.json()).then(d=>{
+        if (d.status === 'success') {
+            showToast('Đã bỏ gán', 'success');
+            euLoadComputers();
+        } else showToast(d.message || 'Thất bại', 'danger');
+    }).catch(()=>showToast('Lỗi kết nối', 'danger'));
 }
 
 // ─────────────────────── INIT ───────────────────────

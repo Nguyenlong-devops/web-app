@@ -86,6 +86,43 @@ def init_db():
             is_active       BOOLEAN NOT NULL DEFAULT TRUE,
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )""",
+
+        # 6. Bảng tài sản máy tính
+        """CREATE TABLE IF NOT EXISTS computers (
+            id            SERIAL PRIMARY KEY,
+            computer_name VARCHAR(255) NOT NULL,
+            cpu           VARCHAR(255),
+            ram           VARCHAR(64),
+            ssd           VARCHAR(64),
+            hdd           VARCHAR(64),
+            os_windows    VARCHAR(128),
+            project       VARCHAR(255),
+            location      VARCHAR(255),
+            status        VARCHAR(32) NOT NULL DEFAULT 'in_use',
+            notes         TEXT,
+            assigned_user VARCHAR(128),
+            created_at    TIMESTAMPTZ DEFAULT NOW(),
+            updated_at    TIMESTAMPTZ DEFAULT NOW()
+        )""",
+
+        # 7. Gán computer cho user (nhiều-nhiều)
+        """CREATE TABLE IF NOT EXISTS user_computers (
+            id               SERIAL PRIMARY KEY,
+            sam_account_name VARCHAR(128) NOT NULL,
+            computer_id      INTEGER NOT NULL REFERENCES computers(id) ON DELETE CASCADE,
+            assigned_at      TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(sam_account_name, computer_id)
+        )""",
+
+        # 8. Migration: thêm cột còn thiếu nếu bảng computers đã tồn tại từ bản cũ
+        """ALTER TABLE computers ADD COLUMN IF NOT EXISTS assigned_user VARCHAR(128)""",
+
+        # 9. Migration: chuyển dữ liệu assigned_user cũ (cột rời rạc) sang user_computers
+        #    (nguồn chân lý duy nhất) — chỉ chạy 1 lần, không ảnh hưởng nếu đã rỗng/đã chuyển
+        """INSERT INTO user_computers (sam_account_name, computer_id)
+           SELECT TRIM(assigned_user), id FROM computers
+           WHERE assigned_user IS NOT NULL AND TRIM(assigned_user) <> ''
+           ON CONFLICT DO NOTHING""",
     ]
 
     for sql in steps:
@@ -608,41 +645,60 @@ def edit_user_ad():
     display_name = request.form.get('edit_display_name', '').strip()
     password     = request.form.get('edit_password', '').strip()
     status       = request.form.get('edit_status', 'true')
+    new_ou       = request.form.get('edit_ou_dn', '').strip()
     details      = []
 
+    # Identity dùng xuyên suốt — cập nhật sau mỗi bước đổi tên/OU
+    current_identity = username
+
+    # 1. Đổi tên hiển thị (AD Rename — CN + DisplayName)
     if display_name:
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; Set-ADUser -Identity '{username}' -DisplayName '{display_name}' -GivenName '{display_name}'",
+            f"Import-Module ActiveDirectory; "
+            f"$u = Get-ADUser -Identity '{current_identity}' -Properties DistinguishedName; "
+            f"Rename-ADObject -Identity $u.DistinguishedName -NewName '{display_name}'; "
+            f"Set-ADUser -Identity '{current_identity}' -DisplayName '{display_name}' -GivenName '{display_name}'",
             cfg, return_stderr=True)
-        details.append(f"display_name exit={ec}")
+        details.append(f"rename_cn={display_name} exit={ec}")
+        # SamAccountName không đổi khi Rename-ADObject, current_identity vẫn dùng được
 
+    # 2. Đổi mật khẩu
     if password:
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; Set-ADAccountPassword -Identity '{username}' "
+            f"Import-Module ActiveDirectory; Set-ADAccountPassword -Identity '{current_identity}' "
             f"-NewPassword (ConvertTo-SecureString '{password}' -AsPlainText -Force) -Reset $true",
             cfg, return_stderr=True)
         details.append(f"password_reset exit={ec}")
 
+    # 3. Enable/Disable
     if status == "true":
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; Enable-ADAccount -Identity '{username}'",
+            f"Import-Module ActiveDirectory; Enable-ADAccount -Identity '{current_identity}'",
             cfg, return_stderr=True)
         details.append(f"enabled=true exit={ec}")
     else:
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; Disable-ADAccount -Identity '{username}'",
+            f"Import-Module ActiveDirectory; Disable-ADAccount -Identity '{current_identity}'",
             cfg, return_stderr=True)
         details.append(f"enabled=false exit={ec}")
 
+    # 4. Di chuyển OU
+    if new_ou:
+        out, err, ec = run_powershell_ssh(
+            f"Import-Module ActiveDirectory; "
+            f"$u = Get-ADUser -Identity '{current_identity}' -Properties DistinguishedName; "
+            f"Move-ADObject -Identity $u.DistinguishedName -TargetPath '{new_ou}'",
+            cfg, return_stderr=True)
+        details.append(f"move_ou={new_ou} exit={ec}")
+
+    # 5. Đổi SamAccountName (username đăng nhập) — làm cuối cùng
     if new_sam and new_sam != username:
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; "
-            f"$u = Get-ADUser '{username}'; "
-            f"Rename-ADObject -Identity $u.DistinguishedName -NewName '{new_sam}'; "
-            f"Set-ADUser -Identity '{new_sam}' -SamAccountName '{new_sam}' "
+            f"Set-ADUser -Identity '{current_identity}' -SamAccountName '{new_sam}' "
             f"-UserPrincipalName '{new_sam}{cfg['domain_suffix']}'",
             cfg, return_stderr=True)
-        details.append(f"rename={username}->{new_sam} exit={ec}")
+        details.append(f"sam_renamed={username}->{new_sam} exit={ec}")
 
     write_log(session['user'], 'EDIT_USER', target=username, detail='; '.join(details))
     return redirect(url_for('index'))
@@ -943,6 +999,249 @@ def api_get_ous():
 # ─────────────────────────────────────────────
 #  API — remove user from group
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+#  Computer Asset CRUD
+# ─────────────────────────────────────────────
+@app.route('/api/computers', methods=['GET'])
+@domain_required
+@login_required
+def api_get_computers():
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        # Lấy assigned_user từ bảng user_computers (nguồn chân lý duy nhất),
+        # gộp nhiều user thành chuỗi nếu 1 máy gán cho nhiều người
+        cur.execute("""
+            SELECT c.id, c.computer_name, c.cpu, c.ram, c.ssd, c.hdd, c.os_windows,
+                   c.project, c.location, c.status, c.notes, c.updated_at,
+                   COALESCE(string_agg(uc.sam_account_name, ', ' ORDER BY uc.sam_account_name), '') AS assigned_users
+            FROM computers c
+            LEFT JOIN user_computers uc ON uc.computer_id = c.id
+            GROUP BY c.id
+            ORDER BY c.id DESC
+        """)
+        rows = cur.fetchall()
+        cols = ['id','computer_name','cpu','ram','ssd','hdd','os_windows',
+                'project','location','status','notes','updated_at','assigned_user']
+        result = []
+        for r in rows:
+            d = dict(zip(cols, r))
+            if d['updated_at']: d['updated_at'] = d['updated_at'].strftime('%d/%m/%Y')
+            result.append(d)
+        return jsonify({"computers": result})
+    finally: cur.close(); conn.close()
+
+@app.route('/api/computers', methods=['POST'])
+@domain_required
+@admin_required
+def api_create_computer():
+    data = request.get_json()
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO computers
+              (computer_name,cpu,ram,ssd,hdd,os_windows,project,location,status,notes,updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
+        """, (data.get('computer_name',''), data.get('cpu',''), data.get('ram',''),
+              data.get('ssd',''), data.get('hdd',''), data.get('os_windows',''),
+              data.get('project',''), data.get('location',''),
+              data.get('status','in_use'), data.get('notes','')))
+        new_id = cur.fetchone()[0]
+
+        # Nếu có gán user ngay lúc tạo, ghi vào user_computers (nguồn chân lý duy nhất)
+        assigned_user = (data.get('assigned_user') or '').strip()
+        if assigned_user:
+            cur.execute(
+                "INSERT INTO user_computers (sam_account_name, computer_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+                (assigned_user, new_id)
+            )
+
+        conn.commit()
+        write_log(session['user'], 'CREATE_COMPUTER', target=data.get('computer_name'), detail=f"id={new_id}")
+        return jsonify({"status":"success","id":new_id})
+    except Exception as e:
+        conn.rollback(); return jsonify({"status":"error","message":str(e)})
+    finally: cur.close(); conn.close()
+
+@app.route('/api/computers/<int:cid>', methods=['PUT'])
+@domain_required
+@admin_required
+def api_update_computer(cid):
+    data = request.get_json()
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE computers SET computer_name=%s,cpu=%s,ram=%s,ssd=%s,hdd=%s,
+            os_windows=%s,project=%s,location=%s,status=%s,notes=%s,updated_at=NOW()
+            WHERE id=%s
+        """, (data.get('computer_name',''), data.get('cpu',''), data.get('ram',''),
+              data.get('ssd',''), data.get('hdd',''), data.get('os_windows',''),
+              data.get('project',''), data.get('location',''),
+              data.get('status','in_use'), data.get('notes',''), cid))
+
+        # Đồng bộ assigned_user vào user_computers — nguồn chân lý duy nhất.
+        # Form Edit Computer chỉ cho gán 1 user nên xóa hết liên kết cũ rồi gán lại.
+        if 'assigned_user' in data:
+            assigned_user = (data.get('assigned_user') or '').strip()
+            cur.execute("DELETE FROM user_computers WHERE computer_id=%s", (cid,))
+            if assigned_user:
+                cur.execute(
+                    "INSERT INTO user_computers (sam_account_name, computer_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+                    (assigned_user, cid)
+                )
+
+        conn.commit()
+        write_log(session['user'], 'EDIT_COMPUTER', target=data.get('computer_name'), detail=f"id={cid}")
+        return jsonify({"status":"success"})
+    except Exception as e:
+        conn.rollback(); return jsonify({"status":"error","message":str(e)})
+    finally: cur.close(); conn.close()
+
+@app.route('/api/computers/<int:cid>', methods=['DELETE'])
+@domain_required
+@admin_required
+def api_delete_computer(cid):
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT computer_name FROM computers WHERE id=%s", (cid,))
+        row = cur.fetchone()
+        cur.execute("DELETE FROM computers WHERE id=%s", (cid,))
+        conn.commit()
+        write_log(session['user'], 'DELETE_COMPUTER', target=row[0] if row else str(cid))
+        return jsonify({"status":"success"})
+    except Exception as e:
+        conn.rollback(); return jsonify({"status":"error","message":str(e)})
+    finally: cur.close(); conn.close()
+
+@app.route('/api/domain-computers')
+@domain_required
+@admin_required
+def api_domain_computers():
+    cfg = get_active_domain_config()
+    ps  = ("Get-ADComputer -Filter * -Properties OperatingSystem,DistinguishedName | "
+           "Select-Object Name,OperatingSystem,DistinguishedName | "
+           "Sort-Object Name | ConvertTo-Json -Compress")
+    out, err, ec = run_powershell_ssh(ps, cfg, return_stderr=True)
+    try:
+        comps = json.loads(out.strip())
+        if isinstance(comps, dict): comps = [comps]
+        elif not isinstance(comps, list): comps = []
+        result = [{"name":c.get("Name",""), "os":c.get("OperatingSystem",""), "dn":c.get("DistinguishedName","")} for c in comps]
+    except: result = []
+    return jsonify({"computers": result})
+
+@app.route('/export-computers-csv')
+@domain_required
+@admin_required
+def export_computers_csv():
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute("""
+        SELECT c.computer_name,c.cpu,c.ram,c.ssd,c.hdd,c.os_windows,c.project,c.location,c.status,
+               COALESCE(string_agg(uc.sam_account_name, ', ' ORDER BY uc.sam_account_name), '') AS assigned_user,
+               c.notes
+        FROM computers c
+        LEFT JOIN user_computers uc ON uc.computer_id = c.id
+        GROUP BY c.id ORDER BY c.id
+    """)
+    rows = cur.fetchall(); cur.close(); conn.close()
+    si = io.StringIO(); cw = csv.writer(si)
+    cw.writerow(['Tên Máy','CPU','RAM','SSD','HDD','Windows','Dự Án','Vị Trí','Tình Trạng','User','Ghi Chú'])
+    smap = {'in_use':'Đang sử dụng','storage':'Lưu kho'}
+    for r in rows:
+        row = list(r); row[8] = smap.get(row[8], row[8]); cw.writerow(row)
+    write_log(session['user'], 'EXPORT_CSV', detail='Exported computers CSV')
+    output = make_response(si.getvalue())
+    output.headers["Content-Disposition"] = "attachment; filename=computers.csv"
+    output.headers["Content-type"] = "text/csv; charset=utf-8-sig"
+    return output
+
+@app.route('/api/import-computers', methods=['POST'])
+@domain_required
+@admin_required
+def api_import_computers():
+    if 'file' not in request.files:
+        return jsonify({"status":"error","message":"Không có file"})
+    import csv as csv_mod, io as io_mod
+    f = request.files['file']
+    stream = io_mod.StringIO(f.stream.read().decode('utf-8-sig'))
+    reader = csv_mod.DictReader(stream)
+    conn = get_db_connection(); cur = conn.cursor(); count = 0
+    try:
+        for row in reader:
+            st = 'in_use' if 'dụng' in row.get('Tình Trạng','') else 'storage'
+            cur.execute("""
+                INSERT INTO computers (computer_name,cpu,ram,ssd,hdd,os_windows,project,location,status,notes,updated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
+            """, (row.get('Tên Máy',''), row.get('CPU',''), row.get('RAM',''),
+                  row.get('SSD',''), row.get('HDD',''), row.get('Windows',''),
+                  row.get('Dự Án',''), row.get('Vị Trí',''), st, row.get('Ghi Chú','')))
+            new_id = cur.fetchone()[0]
+
+            # Cột User trong CSV có thể chứa nhiều user cách nhau dấu phẩy
+            users_str = (row.get('User','') or '').strip()
+            if users_str:
+                for u in [x.strip() for x in users_str.split(',') if x.strip()]:
+                    cur.execute(
+                        "INSERT INTO user_computers (sam_account_name, computer_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+                        (u, new_id)
+                    )
+            count += 1
+        conn.commit()
+        write_log(session['user'], 'IMPORT_COMPUTERS', detail=f"imported {count} rows")
+        return jsonify({"status":"success","count":count})
+    except Exception as e:
+        conn.rollback(); return jsonify({"status":"error","message":str(e)})
+    finally: cur.close(); conn.close()
+
+# ─────────────────────────────────────────────
+#  User-Computer assignment
+# ─────────────────────────────────────────────
+@app.route('/api/user-computers/<username>')
+@domain_required
+@login_required
+def api_get_user_computers(username):
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT c.id, c.computer_name, c.cpu, c.ram, c.status
+            FROM user_computers uc JOIN computers c ON c.id=uc.computer_id
+            WHERE uc.sam_account_name=%s
+        """, (username,))
+        rows = cur.fetchall()
+        return jsonify({"computers": [{"id":r[0],"computer_name":r[1],"cpu":r[2],"ram":r[3],"status":r[4]} for r in rows]})
+    finally: cur.close(); conn.close()
+
+@app.route('/api/user-computers', methods=['POST'])
+@domain_required
+@admin_required
+def api_assign_computer():
+    data = request.get_json()
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("INSERT INTO user_computers (sam_account_name,computer_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+                    (data['username'], data['computer_id']))
+        conn.commit()
+        write_log(session['user'], 'ASSIGN_COMPUTER', target=data['username'], detail=f"cid={data['computer_id']}")
+        return jsonify({"status":"success"})
+    except Exception as e:
+        conn.rollback(); return jsonify({"status":"error","message":str(e)})
+    finally: cur.close(); conn.close()
+
+@app.route('/api/user-computers', methods=['DELETE'])
+@domain_required
+@admin_required
+def api_unassign_computer():
+    data = request.get_json()
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM user_computers WHERE sam_account_name=%s AND computer_id=%s",
+                    (data['username'], data['computer_id']))
+        conn.commit()
+        write_log(session['user'], 'UNASSIGN_COMPUTER', target=data['username'], detail=f"cid={data['computer_id']}")
+        return jsonify({"status":"success"})
+    except Exception as e:
+        conn.rollback(); return jsonify({"status":"error","message":str(e)})
+    finally: cur.close(); conn.close()
+
 @app.route('/api/remove-user-group', methods=['POST'])
 @domain_required
 @admin_required
