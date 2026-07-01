@@ -3,6 +3,7 @@ import json
 import base64
 import csv
 import io
+import time
 import psycopg2
 import paramiko
 from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response, session
@@ -126,6 +127,12 @@ def init_db():
         """ALTER TABLE computers ADD COLUMN IF NOT EXISTS brand VARCHAR(128)""",
         """ALTER TABLE computers ADD COLUMN IF NOT EXISTS model VARCHAR(128)""",
         """ALTER TABLE computers ADD COLUMN IF NOT EXISTS bitlocker VARCHAR(32)""",
+
+        # 9c. Migration: đảm bảo Mã Tài Sản không trùng nhau (bỏ qua NULL/rỗng).
+        #    Nếu DB đang có sẵn mã trùng, bước này sẽ tự bỏ qua (in log) — cần dọn dữ liệu trùng
+        #    thủ công rồi restart app để index được tạo. Việc chặn trùng mới vẫn được áp dụng ở tầng ứng dụng.
+        """CREATE UNIQUE INDEX IF NOT EXISTS uq_computers_asset_code
+           ON computers (asset_code) WHERE asset_code IS NOT NULL AND TRIM(asset_code) <> ''""",
 
         # 10. Migration: chuyển dữ liệu assigned_user cũ (cột rời rạc) sang user_computers
         #    (nguồn chân lý duy nhất) — chỉ chạy 1 lần, không ảnh hưởng nếu đã rỗng/đã chuyển
@@ -254,6 +261,15 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
         out      = stdout.read().decode('utf-8', errors='ignore')
         err      = stderr.read().decode('utf-8', errors='ignore')
         exitcode = stdout.channel.recv_exit_status()  # 0 = success
+
+        # Nếu lệnh có thay đổi user/group AD (tạo/xóa/sửa/enable/disable/thêm-xóa thành viên),
+        # xoá cache danh sách AD để lần load Dashboard kế tiếp lấy dữ liệu mới nhất ngay,
+        # thay vì phải chờ hết TTL cache.
+        _mutating_keywords = ('New-AD', 'Remove-AD', 'Set-AD', 'Add-ADGroupMember',
+                              'Remove-ADGroupMember', 'Enable-ADAccount', 'Disable-ADAccount')
+        if exitcode == 0 and any(k in command_block for k in _mutating_keywords):
+            _AD_CACHE['ts'] = 0
+
         if return_stderr:
             return out, err, exitcode
         return out
@@ -264,6 +280,50 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
         return ""
     finally:
         ssh.close()
+
+# ─────────────────────────────────────────────
+#  Cache Danh Sách User/Group AD
+#  - Mỗi lần load Dashboard trước đây mở 2 kết nối SSH riêng (Get-ADUser + Get-ADGroup),
+#    mỗi kết nối tốn 1-3s+ để handshake/PowerShell, cộng dồn khiến trang rất chậm khi
+#    người dùng chuyển qua lại (vd: Đổi Mật Khẩu -> quay lại Dashboard).
+#  - Gộp còn 1 kết nối SSH duy nhất lấy cả 2 loại dữ liệu, và cache tạm trong ít giây để
+#    các lượt refresh liên tiếp không phải chờ AD trả lời lại từ đầu.
+# ─────────────────────────────────────────────
+_AD_CACHE = {'users': None, 'groups': None, 'ts': 0, 'domain_key': None}
+_AD_CACHE_TTL = 20  # giây
+
+def get_ad_users_and_groups(cfg, force_refresh=False):
+    domain_key = cfg.get('ssh_host') if cfg else None
+    now = time.time()
+    if (not force_refresh and _AD_CACHE['users'] is not None
+            and _AD_CACHE['domain_key'] == domain_key
+            and now - _AD_CACHE['ts'] < _AD_CACHE_TTL):
+        return _AD_CACHE['users'], _AD_CACHE['groups']
+
+    ad_users, ad_groups = [], []
+    ps_cmd = (
+        "$u = Get-ADUser -Filter * -Properties MemberOf | "
+        "Select-Object SamAccountName, Name, Enabled, DistinguishedName, "
+        "@{Name='Groups';Expression={($_.MemberOf | ForEach-Object {($_ -split ',')[0] -replace 'CN=', ''}) -join ','}}; "
+        "$g = Get-ADGroup -Filter * -Properties DistinguishedName | "
+        "Where-Object { $_.DistinguishedName -notmatch ',CN=Builtin,' -and "
+        "$_.DistinguishedName -notmatch ',CN=Users,DC=' } | "
+        "Select-Object SamAccountName, Name, DistinguishedName | Sort-Object Name; "
+        "@{ users = @($u); groups = @($g) } | ConvertTo-Json -Compress -Depth 6"
+    )
+    raw = run_powershell_ssh(ps_cmd, cfg)
+    if raw.strip():
+        try:
+            parsed = json.loads(raw)
+            ad_users = parsed.get('users') or []
+            ad_groups = parsed.get('groups') or []
+            if isinstance(ad_users, dict): ad_users = [ad_users]
+            if isinstance(ad_groups, dict): ad_groups = [ad_groups]
+        except Exception as e:
+            print(f"JSON AD Error: {e}")
+
+    _AD_CACHE.update({'users': ad_users, 'groups': ad_groups, 'ts': now, 'domain_key': domain_key})
+    return ad_users, ad_groups
 
 # ─────────────────────────────────────────────
 #  Auth decorators
@@ -498,38 +558,7 @@ def change_password():
 @login_required
 def index():
     cfg = get_active_domain_config()
-    ad_users  = []
-    ad_groups = []
-
-    ps_user_cmd = (
-        "Get-ADUser -Filter * -Properties MemberOf | "
-        "Select-Object SamAccountName, Name, Enabled, DistinguishedName, "
-        "@{Name='Groups';Expression={($_.MemberOf | ForEach-Object {($_ -split ',')[0] -replace 'CN=', ''}) -join ','}} | "
-        "ConvertTo-Json -Compress"
-    )
-    raw_users = run_powershell_ssh(ps_user_cmd, cfg)
-    if raw_users.strip():
-        try:
-            parsed   = json.loads(raw_users)
-            ad_users = [parsed] if isinstance(parsed, dict) else parsed
-        except Exception as e:
-            print(f"JSON User Error: {e}")
-
-    # Lọc bỏ group hệ thống (CN=Builtin và CN=Users) - chỉ lấy group do admin tạo
-    ps_group_cmd = (
-        "Get-ADGroup -Filter * -Properties DistinguishedName | "
-        "Where-Object { $_.DistinguishedName -notmatch ',CN=Builtin,' -and "
-        "$_.DistinguishedName -notmatch ',CN=Users,DC=' } | "
-        "Select-Object SamAccountName, Name, DistinguishedName | "
-        "Sort-Object Name | ConvertTo-Json -Compress"
-    )
-    raw_groups   = run_powershell_ssh(ps_group_cmd, cfg)
-    if raw_groups.strip():
-        try:
-            parsed_groups = json.loads(raw_groups)
-            ad_groups     = [parsed_groups] if isinstance(parsed_groups, dict) else parsed_groups
-        except Exception as e:
-            print(f"JSON Group Error: {e}")
+    ad_users, ad_groups = get_ad_users_and_groups(cfg)
 
     software_list = []
     assigned_list = []
@@ -1045,13 +1074,20 @@ def api_get_computers():
 @admin_required
 def api_create_computer():
     data = request.get_json()
+    asset_code = (data.get('asset_code') or '').strip()
     conn = get_db_connection(); cur = conn.cursor()
     try:
+        if asset_code:
+            cur.execute("SELECT computer_name FROM computers WHERE TRIM(asset_code)=%s", (asset_code,))
+            dup = cur.fetchone()
+            if dup:
+                return jsonify({"status":"error","message":f"Mã tài sản \"{asset_code}\" đã tồn tại (máy: {dup[0]}). Vui lòng nhập mã khác."})
+
         cur.execute("""
             INSERT INTO computers
               (asset_code,device_type,computer_name,location,brand,model,cpu,ram,ssd,hdd,bitlocker,status,notes,updated_at)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
-        """, (data.get('asset_code',''), data.get('device_type',''), data.get('computer_name',''),
+        """, (asset_code, data.get('device_type',''), data.get('computer_name',''),
               data.get('location',''), data.get('brand',''), data.get('model',''),
               data.get('cpu',''), data.get('ram',''), data.get('ssd',''), data.get('hdd',''),
               data.get('bitlocker',''), data.get('status','in_use'), data.get('notes','')))
@@ -1077,13 +1113,20 @@ def api_create_computer():
 @admin_required
 def api_update_computer(cid):
     data = request.get_json()
+    asset_code = (data.get('asset_code') or '').strip()
     conn = get_db_connection(); cur = conn.cursor()
     try:
+        if asset_code:
+            cur.execute("SELECT computer_name FROM computers WHERE TRIM(asset_code)=%s AND id<>%s", (asset_code, cid))
+            dup = cur.fetchone()
+            if dup:
+                return jsonify({"status":"error","message":f"Mã tài sản \"{asset_code}\" đã tồn tại (máy: {dup[0]}). Vui lòng nhập mã khác."})
+
         cur.execute("""
             UPDATE computers SET asset_code=%s,device_type=%s,computer_name=%s,location=%s,brand=%s,model=%s,
             cpu=%s,ram=%s,ssd=%s,hdd=%s,bitlocker=%s,status=%s,notes=%s,updated_at=NOW()
             WHERE id=%s
-        """, (data.get('asset_code',''), data.get('device_type',''), data.get('computer_name',''),
+        """, (asset_code, data.get('device_type',''), data.get('computer_name',''),
               data.get('location',''), data.get('brand',''), data.get('model',''),
               data.get('cpu',''), data.get('ram',''), data.get('ssd',''), data.get('hdd',''),
               data.get('bitlocker',''), data.get('status','in_use'), data.get('notes',''), cid))
@@ -1173,20 +1216,56 @@ def api_import_computers():
         return jsonify({"status":"error","message":"Không có file"})
     import csv as csv_mod, io as io_mod
     f = request.files['file']
-    stream = io_mod.StringIO(f.stream.read().decode('utf-8-sig'))
-    reader = csv_mod.DictReader(stream)
-    conn = get_db_connection(); cur = conn.cursor(); count = 0
+    conn = None; cur = None; count = 0
     try:
+        raw = f.stream.read()
+        # Excel khi lưu lại CSV tiếng Việt thường không giữ UTF-8 (có thể ra ANSI/Windows-1258/1252).
+        # Thử lần lượt các bảng mã phổ biến để tránh crash toàn bộ request.
+        text = None
+        for enc in ('utf-8-sig', 'utf-8', 'cp1258', 'cp1252', 'latin-1'):
+            try:
+                text = raw.decode(enc)
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        if text is None:
+            text = raw.decode('utf-8', errors='replace')
+
+        stream = io_mod.StringIO(text)
+        reader = csv_mod.DictReader(stream)
+        if not reader.fieldnames:
+            return jsonify({"status":"error","message":"File CSV rỗng hoặc không đúng định dạng"})
+
+        conn = get_db_connection(); cur = conn.cursor()
+
+        # Lấy trước các mã tài sản đã tồn tại trong DB để phát hiện trùng (không tính mã rỗng)
+        cur.execute("SELECT TRIM(asset_code) FROM computers WHERE asset_code IS NOT NULL AND TRIM(asset_code) <> ''")
+        existing_codes = {r[0] for r in cur.fetchall()}
+        seen_in_file = set()
+        skipped = []  # [(asset_code, computer_name, lý do)]
+
         for row in reader:
-            st = 'in_use' if 'dụng' in row.get('Trạng Thái', row.get('Tình Trạng','')) else 'storage'
+            asset_code = (row.get('Mã Tài Sản') or row.get('Mã') or '').strip()
+            computer_name = row.get('Tên') or row.get('Tên Máy') or ''
+
+            if asset_code:
+                if asset_code in existing_codes:
+                    skipped.append((asset_code, computer_name, 'đã tồn tại trong hệ thống'))
+                    continue
+                if asset_code in seen_in_file:
+                    skipped.append((asset_code, computer_name, 'trùng lặp ngay trong file import'))
+                    continue
+
+            st = 'in_use' if 'dụng' in row.get('Trạng Thái', row.get('Tình Trạng','') or '') else 'storage'
             cur.execute("""
                 INSERT INTO computers (asset_code,device_type,computer_name,location,brand,model,cpu,ram,ssd,hdd,bitlocker,status,notes,updated_at)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
-            """, (row.get('Mã Tài Sản', row.get('Mã','')), row.get('Thiết Bị', row.get('Loại','')), row.get('Tên', row.get('Tên Máy','')),
-                  row.get('Vị Trí',''), row.get('Hãng',''), row.get('Model',''),
-                  row.get('CPU',''), row.get('RAM',''), row.get('SSD',''), row.get('HDD',''),
-                  row.get('Bitlocker',''), st, row.get('Ghi Chú','')))
+            """, (asset_code, row.get('Thiết Bị') or row.get('Loại') or '', computer_name,
+                  row.get('Vị Trí') or '', row.get('Hãng') or '', row.get('Model') or '',
+                  row.get('CPU') or '', row.get('RAM') or '', row.get('SSD') or '', row.get('HDD') or '',
+                  row.get('Bitlocker') or '', st, row.get('Ghi Chú') or ''))
             new_id = cur.fetchone()[0]
+            if asset_code: seen_in_file.add(asset_code)
 
             # Cột User trong CSV có thể chứa nhiều user cách nhau dấu phẩy
             users_str = (row.get('User','') or '').strip()
@@ -1198,11 +1277,20 @@ def api_import_computers():
                     )
             count += 1
         conn.commit()
-        write_log(session['user'], 'IMPORT_COMPUTERS', detail=f"imported {count} rows")
-        return jsonify({"status":"success","count":count})
+        skip_detail = f", bỏ qua {len(skipped)} dòng trùng mã tài sản" if skipped else ""
+        write_log(session['user'], 'IMPORT_COMPUTERS', detail=f"imported {count} rows{skip_detail}")
+        return jsonify({
+            "status": "success",
+            "count": count,
+            "skipped_count": len(skipped),
+            "skipped": [{"asset_code": a, "computer_name": n, "reason": r} for a, n, r in skipped]
+        })
     except Exception as e:
-        conn.rollback(); return jsonify({"status":"error","message":str(e)})
-    finally: cur.close(); conn.close()
+        if conn: conn.rollback()
+        return jsonify({"status":"error","message":str(e)})
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
 
 # ─────────────────────────────────────────────
 #  User-Computer assignment
