@@ -195,8 +195,35 @@
             <input type="hidden" id="cm_id">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                 <div class="form-group">
+                    <label>Mã Tài Sản</label>
+                    <input type="text" id="cm_code" placeholder="vd: TS-001" style="font-family:monospace;font-weight:600;">
+                </div>
+                <div class="form-group">
+                    <label>Thiết Bị</label>
+                    <select id="cm_type" style="height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                        <option value="">-- Chọn thiết bị --</option>
+                        <option value="Desktop">Desktop</option>
+                        <option value="Laptop">Laptop</option>
+                        <option value="Server">Server</option>
+                        <option value="Máy in">Máy in</option>
+                        <option value="Khác">Khác</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label>Tên Máy *</label>
                     <input type="text" id="cm_name" placeholder="vd: PC-KT-01" style="font-family:monospace;font-weight:600;">
+                </div>
+                <div class="form-group">
+                    <label>Vị Trí</label>
+                    <input type="text" id="cm_location" placeholder="vd: Tầng 3 - Phòng IT">
+                </div>
+                <div class="form-group">
+                    <label>Hãng</label>
+                    <input type="text" id="cm_brand" placeholder="vd: Dell, HP, Lenovo...">
+                </div>
+                <div class="form-group">
+                    <label>Model</label>
+                    <input type="text" id="cm_model" placeholder="vd: Latitude 5420">
                 </div>
                 <div class="form-group">
                     <label>CPU</label>
@@ -215,16 +242,13 @@
                     <input type="text" id="cm_hdd" placeholder="vd: 1TB HDD">
                 </div>
                 <div class="form-group">
-                    <label>Windows</label>
-                    <input type="text" id="cm_os" placeholder="vd: Windows 11 Pro">
-                </div>
-                <div class="form-group">
-                    <label>Dự Án</label>
-                    <input type="text" id="cm_project" placeholder="vd: PV Infrastructure">
-                </div>
-                <div class="form-group">
-                    <label>Vị Trí</label>
-                    <input type="text" id="cm_location" placeholder="vd: Tầng 3 - Phòng IT">
+                    <label>Bitlocker</label>
+                    <select id="cm_bitlocker" style="height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                        <option value="">-- Chọn --</option>
+                        <option value="Bật">Bật</option>
+                        <option value="Tắt">Tắt</option>
+                        <option value="Không áp dụng">Không áp dụng</option>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label>Tình Trạng</label>
@@ -700,7 +724,7 @@
         <div class="page-header">
             <div>
                 <div class="page-title">Quản Lý Computer</div>
-                <div class="page-subtitle">Tài sản máy tính và máy đã join domain</div>
+                <div class="page-subtitle" id="cmp-page-subtitle">Tài sản máy tính và máy đã join domain</div>
             </div>
             <div class="page-actions">
                 <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
@@ -714,12 +738,10 @@
 
         <!-- Tabs -->
         <div style="display:flex;gap:4px;margin-bottom:12px;">
-            <button id="tab_assets" onclick="switchComputerTab('assets')"
-                style="padding:8px 20px;border:none;border-radius:var(--r-md) var(--r-md) 0 0;font-weight:600;font-size:13px;cursor:pointer;background:var(--azure);color:#fff;">
+            <button id="tab_assets" class="cmp-tab cmp-tab-active" onclick="switchComputerTab('assets')">
                 📋 Danh Sách Tài Sản
             </button>
-            <button id="tab_domain" onclick="switchComputerTab('domain')"
-                style="padding:8px 20px;border:none;border-radius:var(--r-md) var(--r-md) 0 0;font-weight:600;font-size:13px;cursor:pointer;background:var(--bg-secondary);color:var(--text-soft);">
+            <button id="tab_domain" class="cmp-tab cmp-tab-inactive" onclick="switchComputerTab('domain')">
                 🖥 Máy Trong Domain
             </button>
         </div>
@@ -743,22 +765,25 @@
                     <table class="modern-table" id="assetTable">
                         <thead>
                             <tr>
-                                <th onclick="sortTable('assetTable',0)" style="cursor:pointer;user-select:none;">Tên Máy <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',1)" style="cursor:pointer;user-select:none;">CPU <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',2)" style="cursor:pointer;user-select:none;">RAM <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',0)" style="cursor:pointer;user-select:none;">Mã Tài Sản <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',1)" style="cursor:pointer;user-select:none;">Thiết Bị <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',2)" style="cursor:pointer;user-select:none;">Tên <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',3)" style="cursor:pointer;user-select:none;">Vị Trí <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',4)" style="cursor:pointer;user-select:none;">Hãng <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',5)" style="cursor:pointer;user-select:none;">Model <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',6)" style="cursor:pointer;user-select:none;">CPU <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',7)" style="cursor:pointer;user-select:none;">RAM <span>⇅</span></th>
                                 <th>SSD</th>
                                 <th>HDD</th>
-                                <th onclick="sortTable('assetTable',5)" style="cursor:pointer;user-select:none;">Windows <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',6)" style="cursor:pointer;user-select:none;">Dự Án <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',7)" style="cursor:pointer;user-select:none;">Vị Trí <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',8)" style="cursor:pointer;user-select:none;">Tình Trạng <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',9)" style="cursor:pointer;user-select:none;">User <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',10)" style="cursor:pointer;user-select:none;">Bitlocker <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',11)" style="cursor:pointer;user-select:none;">Trạng Thái <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',12)" style="cursor:pointer;user-select:none;">User <span>⇅</span></th>
                                 <th>Ghi Chú</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="assetTableBody">
-                            <tr><td colspan="12" style="text-align:center;padding:30px;color:var(--text-muted);">Đang tải...</td></tr>
+                            <tr><td colspan="15" style="text-align:center;padding:30px;color:var(--text-muted);">Đang tải...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1054,6 +1079,13 @@
 }
 .eu-input:focus, .eu-select:focus { border-color: var(--azure); box-shadow: 0 0 0 2px var(--azure-glow); }
 .eu-divider { height: 1px; background: var(--border-light); margin: 16px 0; }
+/* Fix tương phản chữ tab "Danh Sách Tài Sản" / "Máy Trong Domain" + subtitle theo theme sáng/tối */
+.cmp-tab { padding:8px 20px;border:none;border-radius:var(--r-md) var(--r-md) 0 0;font-weight:600;font-size:13px;cursor:pointer; }
+.cmp-tab-active { background:#0078d4 !important; color:#ffffff !important; }
+.cmp-tab-inactive { background:#e8e8e8 !important; color:#1a1a1a !important; }
+html[data-theme="dark"] .cmp-tab-inactive { background:#2a2a2a !important; color:#f2f2f2 !important; }
+#cmp-page-subtitle { color:#5a5a5a !important; }
+html[data-theme="dark"] #cmp-page-subtitle { color:#c8c8c8 !important; }
 .eu-status-row { display: flex; gap: 10px; }
 .eu-status-btn {
     flex: 1; height: 40px; border-radius: 6px; border: 2px solid var(--border);
@@ -1633,10 +1665,8 @@ function switchComputerTab(tab) {
     const isAssets = tab === 'assets';
     document.getElementById('tab_panel_assets').style.display = isAssets ? '' : 'none';
     document.getElementById('tab_panel_domain').style.display = isAssets ? 'none' : '';
-    document.getElementById('tab_assets').style.background = isAssets ? 'var(--azure)' : 'var(--bg-secondary)';
-    document.getElementById('tab_assets').style.color = isAssets ? '#fff' : 'var(--text-soft)';
-    document.getElementById('tab_domain').style.background = !isAssets ? 'var(--azure)' : 'var(--bg-secondary)';
-    document.getElementById('tab_domain').style.color = !isAssets ? '#fff' : 'var(--text-soft)';
+    document.getElementById('tab_assets').className = 'cmp-tab ' + (isAssets ? 'cmp-tab-active' : 'cmp-tab-inactive');
+    document.getElementById('tab_domain').className = 'cmp-tab ' + (!isAssets ? 'cmp-tab-active' : 'cmp-tab-inactive');
     if (!isAssets) loadDomainComputers();
 }
 
@@ -1650,20 +1680,23 @@ function loadAssets() {
 function renderAssetTable(list) {
     const tbody = document.getElementById('assetTableBody');
     if (!list.length) {
-        tbody.innerHTML='<tr><td colspan="12" style="text-align:center;padding:30px;color:var(--text-muted);">Chưa có máy nào. Bấm "+ Thêm Máy" để bắt đầu.</td></tr>';
+        tbody.innerHTML='<tr><td colspan="15" style="text-align:center;padding:30px;color:var(--text-muted);">Chưa có máy nào. Bấm "+ Thêm Máy" để bắt đầu.</td></tr>';
         return;
     }
     const statusLabel = {in_use:'<span class="badge badge-success">Đang dùng</span>', storage:'<span class="badge badge-secondary">Lưu kho</span>'};
     tbody.innerHTML = list.map(c=>`
         <tr data-status="${c.status}">
+            <td style="font-size:12px;font-family:monospace;">${c.asset_code||'—'}</td>
+            <td style="font-size:12px;">${c.device_type||'—'}</td>
             <td><strong style="font-family:monospace;">${c.computer_name||''}</strong></td>
+            <td style="font-size:12px;">${c.location||'—'}</td>
+            <td style="font-size:12px;">${c.brand||'—'}</td>
+            <td style="font-size:12px;">${c.model||'—'}</td>
             <td style="font-size:12px;">${c.cpu||'—'}</td>
             <td style="font-size:12px;">${c.ram||'—'}</td>
             <td style="font-size:12px;">${c.ssd||'—'}</td>
             <td style="font-size:12px;">${c.hdd||'—'}</td>
-            <td style="font-size:12px;">${c.os_windows||'—'}</td>
-            <td style="font-size:12px;">${c.project||'—'}</td>
-            <td style="font-size:12px;">${c.location||'—'}</td>
+            <td style="font-size:12px;">${c.bitlocker||'—'}</td>
             <td>${statusLabel[c.status]||c.status}</td>
             <td style="font-size:12px;">${c.assigned_user ? `<code>${c.assigned_user}</code>` : '<span style="color:var(--text-muted);">—</span>'}</td>
             <td style="font-size:12px;color:var(--text-soft);max-width:150px;">${c.notes||''}</td>
@@ -1722,7 +1755,7 @@ function loadDomainComputers() {
 
 function openAddComputerModal() {
     document.getElementById('computerModalTitle').textContent = '+ Thêm Máy Tính';
-    ['cm_id','cm_name','cm_cpu','cm_ram','cm_ssd','cm_hdd','cm_os','cm_project','cm_location','cm_notes'].forEach(id=>{
+    ['cm_id','cm_code','cm_type','cm_name','cm_location','cm_brand','cm_model','cm_cpu','cm_ram','cm_ssd','cm_hdd','cm_bitlocker','cm_notes'].forEach(id=>{
         const el=document.getElementById(id); if(el) el.value='';
     });
     document.getElementById('cm_status').value='in_use';
@@ -1734,17 +1767,20 @@ function openEditComputerModal(id) {
     const c = _allComputers.find(x=>x.id===id);
     if (!c) return;
     document.getElementById('computerModalTitle').textContent = '✏ Chỉnh sửa: ' + c.computer_name;
-    document.getElementById('cm_id').value      = c.id;
-    document.getElementById('cm_name').value    = c.computer_name||'';
-    document.getElementById('cm_cpu').value     = c.cpu||'';
-    document.getElementById('cm_ram').value     = c.ram||'';
-    document.getElementById('cm_ssd').value     = c.ssd||'';
-    document.getElementById('cm_hdd').value     = c.hdd||'';
-    document.getElementById('cm_os').value      = c.os_windows||'';
-    document.getElementById('cm_project').value = c.project||'';
-    document.getElementById('cm_location').value= c.location||'';
-    document.getElementById('cm_status').value  = c.status||'in_use';
-    document.getElementById('cm_notes').value   = c.notes||'';
+    document.getElementById('cm_id').value        = c.id;
+    document.getElementById('cm_code').value      = c.asset_code||'';
+    document.getElementById('cm_type').value      = c.device_type||'';
+    document.getElementById('cm_name').value      = c.computer_name||'';
+    document.getElementById('cm_location').value  = c.location||'';
+    document.getElementById('cm_brand').value     = c.brand||'';
+    document.getElementById('cm_model').value     = c.model||'';
+    document.getElementById('cm_cpu').value       = c.cpu||'';
+    document.getElementById('cm_ram').value       = c.ram||'';
+    document.getElementById('cm_ssd').value       = c.ssd||'';
+    document.getElementById('cm_hdd').value       = c.hdd||'';
+    document.getElementById('cm_bitlocker').value = c.bitlocker||'';
+    document.getElementById('cm_status').value    = c.status||'in_use';
+    document.getElementById('cm_notes').value     = c.notes||'';
     document.getElementById('computerModal').classList.add('show');
 }
 
@@ -1753,16 +1789,19 @@ function saveComputer() {
     const name = document.getElementById('cm_name').value.trim();
     if (!name) { showToast('Vui lòng nhập tên máy','warning'); return; }
     const data = {
+        asset_code:  document.getElementById('cm_code').value,
+        device_type: document.getElementById('cm_type').value,
         computer_name: name,
-        cpu:        document.getElementById('cm_cpu').value,
-        ram:        document.getElementById('cm_ram').value,
-        ssd:        document.getElementById('cm_ssd').value,
-        hdd:        document.getElementById('cm_hdd').value,
-        os_windows: document.getElementById('cm_os').value,
-        project:    document.getElementById('cm_project').value,
-        location:   document.getElementById('cm_location').value,
-        status:     document.getElementById('cm_status').value,
-        notes:      document.getElementById('cm_notes').value,
+        location:    document.getElementById('cm_location').value,
+        brand:       document.getElementById('cm_brand').value,
+        model:       document.getElementById('cm_model').value,
+        cpu:         document.getElementById('cm_cpu').value,
+        ram:         document.getElementById('cm_ram').value,
+        ssd:         document.getElementById('cm_ssd').value,
+        hdd:         document.getElementById('cm_hdd').value,
+        bitlocker:   document.getElementById('cm_bitlocker').value,
+        status:      document.getElementById('cm_status').value,
+        notes:       document.getElementById('cm_notes').value,
     };
     const url    = id ? `/api/computers/${id}` : '/api/computers';
     const method = id ? 'PUT' : 'POST';

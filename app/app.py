@@ -121,6 +121,12 @@ def init_db():
         # 9. Migration: thêm cột asset_code nếu chưa có
         """ALTER TABLE computers ADD COLUMN IF NOT EXISTS asset_code VARCHAR(64)""",
 
+        # 9b. Migration: thêm các cột Loại / Hãng / Model / Bitlocker
+        """ALTER TABLE computers ADD COLUMN IF NOT EXISTS device_type VARCHAR(64)""",
+        """ALTER TABLE computers ADD COLUMN IF NOT EXISTS brand VARCHAR(128)""",
+        """ALTER TABLE computers ADD COLUMN IF NOT EXISTS model VARCHAR(128)""",
+        """ALTER TABLE computers ADD COLUMN IF NOT EXISTS bitlocker VARCHAR(32)""",
+
         # 10. Migration: chuyển dữ liệu assigned_user cũ (cột rời rạc) sang user_computers
         #    (nguồn chân lý duy nhất) — chỉ chạy 1 lần, không ảnh hưởng nếu đã rỗng/đã chuyển
         """INSERT INTO user_computers (sam_account_name, computer_id)
@@ -853,7 +859,7 @@ def export_licenses_csv():
         cw.writerow([r[0], r[1], r[2], r[3].strftime('%Y-%m-%d %H:%M:%S') if r[3] else ''])
 
     write_log(session['user'], 'EXPORT_CSV', detail='Exported license assignment CSV')
-    output = make_response(si.getvalue())
+    output = make_response(si.getvalue().encode('utf-8-sig'))
     output.headers["Content-Disposition"] = "attachment; filename=assigned_licenses.csv"
     output.headers["Content-type"] = "text/csv; charset=utf-8"
     return output
@@ -878,7 +884,7 @@ def export_audit_csv():
     for r in rows:
         cw.writerow([r[0], r[1].strftime('%Y-%m-%d %H:%M:%S') if r[1] else '', r[2], r[3], r[4], r[5], r[6]])
 
-    output = make_response(si.getvalue())
+    output = make_response(si.getvalue().encode('utf-8-sig'))
     output.headers["Content-Disposition"] = "attachment; filename=audit_log.csv"
     output.headers["Content-type"] = "text/csv; charset=utf-8"
     return output
@@ -926,9 +932,9 @@ def export_users_csv():
         cw.writerow([u.get('SamAccountName',''), u.get('Name',''),
                      'Active' if u.get('Enabled') else 'Disabled', u.get('Groups','')])
     write_log(session['user'], 'EXPORT_CSV', detail='Exported AD users CSV')
-    output = make_response(si.getvalue())
+    output = make_response(si.getvalue().encode('utf-8-sig'))
     output.headers["Content-Disposition"] = "attachment; filename=ad_users.csv"
-    output.headers["Content-type"] = "text/csv; charset=utf-8-sig"
+    output.headers["Content-type"] = "text/csv; charset=utf-8"
     return output
 
 # ─────────────────────────────────────────────
@@ -1015,8 +1021,8 @@ def api_get_computers():
         # Lấy assigned_user từ bảng user_computers (nguồn chân lý duy nhất),
         # gộp nhiều user thành chuỗi nếu 1 máy gán cho nhiều người
         cur.execute("""
-            SELECT c.id, c.asset_code, c.computer_name, c.cpu, c.ram, c.ssd, c.hdd, c.os_windows,
-                   c.project, c.location, c.status, c.notes, c.updated_at,
+            SELECT c.id, c.asset_code, c.device_type, c.computer_name, c.location, c.brand, c.model,
+                   c.cpu, c.ram, c.ssd, c.hdd, c.bitlocker, c.status, c.notes, c.updated_at,
                    COALESCE(string_agg(uc.sam_account_name, ', ' ORDER BY uc.sam_account_name), '') AS assigned_users
             FROM computers c
             LEFT JOIN user_computers uc ON uc.computer_id = c.id
@@ -1024,8 +1030,8 @@ def api_get_computers():
             ORDER BY c.id DESC
         """)
         rows = cur.fetchall()
-        cols = ['id','asset_code','computer_name','cpu','ram','ssd','hdd','os_windows',
-                'project','location','status','notes','updated_at','assigned_user']
+        cols = ['id','asset_code','device_type','computer_name','location','brand','model',
+                'cpu','ram','ssd','hdd','bitlocker','status','notes','updated_at','assigned_user']
         result = []
         for r in rows:
             d = dict(zip(cols, r))
@@ -1043,12 +1049,12 @@ def api_create_computer():
     try:
         cur.execute("""
             INSERT INTO computers
-              (asset_code,computer_name,cpu,ram,ssd,hdd,os_windows,project,location,status,notes,updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
-        """, (data.get('asset_code',''), data.get('computer_name',''), data.get('cpu',''), data.get('ram',''),
-              data.get('ssd',''), data.get('hdd',''), data.get('os_windows',''),
-              data.get('project',''), data.get('location',''),
-              data.get('status','in_use'), data.get('notes','')))
+              (asset_code,device_type,computer_name,location,brand,model,cpu,ram,ssd,hdd,bitlocker,status,notes,updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
+        """, (data.get('asset_code',''), data.get('device_type',''), data.get('computer_name',''),
+              data.get('location',''), data.get('brand',''), data.get('model',''),
+              data.get('cpu',''), data.get('ram',''), data.get('ssd',''), data.get('hdd',''),
+              data.get('bitlocker',''), data.get('status','in_use'), data.get('notes','')))
         new_id = cur.fetchone()[0]
 
         # Nếu có gán user ngay lúc tạo, ghi vào user_computers (nguồn chân lý duy nhất)
@@ -1074,13 +1080,13 @@ def api_update_computer(cid):
     conn = get_db_connection(); cur = conn.cursor()
     try:
         cur.execute("""
-            UPDATE computers SET asset_code=%s,computer_name=%s,cpu=%s,ram=%s,ssd=%s,hdd=%s,
-            os_windows=%s,project=%s,location=%s,status=%s,notes=%s,updated_at=NOW()
+            UPDATE computers SET asset_code=%s,device_type=%s,computer_name=%s,location=%s,brand=%s,model=%s,
+            cpu=%s,ram=%s,ssd=%s,hdd=%s,bitlocker=%s,status=%s,notes=%s,updated_at=NOW()
             WHERE id=%s
-        """, (data.get('asset_code',''), data.get('computer_name',''), data.get('cpu',''), data.get('ram',''),
-              data.get('ssd',''), data.get('hdd',''), data.get('os_windows',''),
-              data.get('project',''), data.get('location',''),
-              data.get('status','in_use'), data.get('notes',''), cid))
+        """, (data.get('asset_code',''), data.get('device_type',''), data.get('computer_name',''),
+              data.get('location',''), data.get('brand',''), data.get('model',''),
+              data.get('cpu',''), data.get('ram',''), data.get('ssd',''), data.get('hdd',''),
+              data.get('bitlocker',''), data.get('status','in_use'), data.get('notes',''), cid))
 
         # Đồng bộ assigned_user vào user_computers — nguồn chân lý duy nhất.
         # Form Edit Computer chỉ cho gán 1 user nên xóa hết liên kết cũ rồi gán lại.
@@ -1139,7 +1145,7 @@ def api_domain_computers():
 def export_computers_csv():
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute("""
-        SELECT c.asset_code,c.computer_name,c.cpu,c.ram,c.ssd,c.hdd,c.os_windows,c.project,c.location,c.status,
+        SELECT c.asset_code,c.device_type,c.computer_name,c.location,c.brand,c.model,c.cpu,c.ram,c.ssd,c.hdd,c.bitlocker,c.status,
                COALESCE(string_agg(uc.sam_account_name, ', ' ORDER BY uc.sam_account_name), '') AS assigned_user,
                c.notes
         FROM computers c
@@ -1148,14 +1154,15 @@ def export_computers_csv():
     """)
     rows = cur.fetchall(); cur.close(); conn.close()
     si = io.StringIO(); cw = csv.writer(si)
-    cw.writerow(['Mã Tài Sản','Tên Máy','CPU','RAM','SSD','HDD','Windows','Dự Án','Vị Trí','Tình Trạng','User','Ghi Chú'])
+    cw.writerow(['Mã Tài Sản','Thiết Bị','Tên','Vị Trí','Hãng','Model','CPU','RAM','SSD','HDD','Bitlocker','Trạng Thái','User','Ghi Chú'])
     smap = {'in_use':'Đang sử dụng','storage':'Lưu kho'}
     for r in rows:
-        row = list(r); row[9] = smap.get(row[9], row[9]); cw.writerow(row)
+        row = list(r); row[11] = smap.get(row[11], row[11]); cw.writerow(row)
     write_log(session['user'], 'EXPORT_CSV', detail='Exported computers CSV')
-    output = make_response(si.getvalue())
+    csv_bytes = si.getvalue().encode('utf-8-sig')  # thêm BOM thật để Excel nhận đúng UTF-8
+    output = make_response(csv_bytes)
     output.headers["Content-Disposition"] = "attachment; filename=computers.csv"
-    output.headers["Content-type"] = "text/csv; charset=utf-8-sig"
+    output.headers["Content-type"] = "text/csv; charset=utf-8"
     return output
 
 @app.route('/api/import-computers', methods=['POST'])
@@ -1171,13 +1178,14 @@ def api_import_computers():
     conn = get_db_connection(); cur = conn.cursor(); count = 0
     try:
         for row in reader:
-            st = 'in_use' if 'dụng' in row.get('Tình Trạng','') else 'storage'
+            st = 'in_use' if 'dụng' in row.get('Trạng Thái', row.get('Tình Trạng','')) else 'storage'
             cur.execute("""
-                INSERT INTO computers (asset_code,computer_name,cpu,ram,ssd,hdd,os_windows,project,location,status,notes,updated_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
-            """, (row.get('Mã Tài Sản',''), row.get('Tên Máy',''), row.get('CPU',''), row.get('RAM',''),
-                  row.get('SSD',''), row.get('HDD',''), row.get('Windows',''),
-                  row.get('Dự Án',''), row.get('Vị Trí',''), st, row.get('Ghi Chú','')))
+                INSERT INTO computers (asset_code,device_type,computer_name,location,brand,model,cpu,ram,ssd,hdd,bitlocker,status,notes,updated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
+            """, (row.get('Mã Tài Sản', row.get('Mã','')), row.get('Thiết Bị', row.get('Loại','')), row.get('Tên', row.get('Tên Máy','')),
+                  row.get('Vị Trí',''), row.get('Hãng',''), row.get('Model',''),
+                  row.get('CPU',''), row.get('RAM',''), row.get('SSD',''), row.get('HDD',''),
+                  row.get('Bitlocker',''), st, row.get('Ghi Chú','')))
             new_id = cur.fetchone()[0]
 
             # Cột User trong CSV có thể chứa nhiều user cách nhau dấu phẩy
