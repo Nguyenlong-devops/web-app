@@ -62,6 +62,10 @@
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>
             Quản Lý Computer
         </button>
+        <button class="nav-item" onclick="showSection('section-handover', this)">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg></span>
+            Bàn Giao Thiết Bị
+        </button>
         <button class="nav-item" onclick="showSection('section-audit', this)">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
             Audit Log
@@ -816,6 +820,81 @@
 
     </div><!-- /section-computers -->
 
+    <!-- ════════ SECTION: BÀN GIAO THIẾT BỊ ════════ -->
+    <div id="section-handover" class="hidden">
+        <div class="page-header">
+            <div>
+                <div class="page-title">Bàn Giao Thiết Bị</div>
+                <div class="page-subtitle">Tạo biên bản bàn giao thiết bị &amp; tài khoản cho nhân viên</div>
+            </div>
+            <div class="page-actions">
+                <button class="btn btn-primary btn-sm" onclick="printHandover()">🖨 In / Xuất PDF</button>
+            </div>
+        </div>
+
+        <div class="content-card" style="padding:20px;margin-bottom:16px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end;">
+                <div class="form-group">
+                    <label>Chọn nhân viên (AD User)</label>
+                    <select id="ho_user" onchange="loadHandoverInfo()"
+                        style="height:34px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                        <option value="">-- Chọn nhân viên --</option>
+                    </select>
+                </div>
+                <div class="form-group" id="ho_computer_picker_wrap" style="display:none;">
+                    <label>Chọn máy (nhân viên có nhiều máy)</label>
+                    <select id="ho_computer_picker" onchange="applyHandoverComputer()"
+                        style="height:34px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;"></select>
+                </div>
+            </div>
+            <div id="ho_no_computer_hint" style="display:none;font-size:12px;color:var(--warning,#c77700);margin-top:8px;">
+                ⚠ Nhân viên này chưa được gán máy tính nào trong "Quản Lý Computer". Bạn vẫn có thể nhập tay bên dưới.
+            </div>
+        </div>
+
+        <!-- 1. Thiết bị được bàn giao -->
+        <div class="content-card" style="padding:20px;margin-bottom:16px;">
+            <h3 style="margin:0 0 14px;font-size:15px;">1. Thiết Bị Được Bàn Giao</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;">
+                <div class="form-group"><label>Thiết bị</label><input type="text" id="ho_device_type" placeholder="vd: Laptop Dell"></div>
+                <div class="form-group"><label>Model</label><input type="text" id="ho_model" placeholder="vd: Latitude 3420"></div>
+                <div class="form-group"><label>CPU</label><input type="text" id="ho_cpu" placeholder="vd: Core i5"></div>
+                <div class="form-group"><label>RAM</label><input type="text" id="ho_ram" placeholder="vd: 8GB"></div>
+                <div class="form-group"><label>SSD</label><input type="text" id="ho_ssd" placeholder="vd: 256GB"></div>
+                <div class="form-group"><label>Phụ kiện kèm theo</label><input type="text" id="ho_accessories" placeholder="Chuột, bàn phím, tai nghe…"></div>
+                <div class="form-group" style="grid-column:span 2;"><label>Computer</label><input type="text" id="ho_computer_name" placeholder="vd: AITL2026010xx"></div>
+            </div>
+            <div class="eu-divider"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;">
+                <div class="form-group"><label>OS</label><input type="text" id="ho_os" value="Windows 11"></div>
+                <div class="form-group"><label>BitLocker</label><input type="text" id="ho_bitlocker" placeholder="vd: Bật"></div>
+                <div class="form-group"><label>Tài khoản Windows</label><input type="text" id="ho_win_account" placeholder="vd: sonnd"></div>
+                <div class="form-group"><label>Mật khẩu Windows</label><input type="text" id="ho_win_password" placeholder="Nhập mật khẩu"></div>
+            </div>
+        </div>
+
+        <!-- 2. Thông tin tài khoản -->
+        <div class="content-card" style="padding:20px;margin-bottom:16px;">
+            <h3 style="margin:0 0 14px;font-size:15px;">2. Thông Tin Tài Khoản</h3>
+            <div class="table-container">
+                <table class="modern-table" id="ho_account_table">
+                    <thead>
+                        <tr><th style="width:40px;">STT</th><th style="width:140px;">Tên</th><th>URL</th><th style="width:160px;">Tài khoản</th><th style="width:160px;">Mật khẩu</th></tr>
+                    </thead>
+                    <tbody id="ho_account_tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 3. Ghi chú + hỗ trợ (tĩnh, hiển thị trong bản in) -->
+        <div class="content-card" style="padding:20px;">
+            <h3 style="margin:0 0 10px;font-size:15px;">3. Ghi Chú Quan Trọng</h3>
+            <textarea id="ho_notes" rows="4" style="width:100%;padding:8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;font-family:inherit;">Thiết bị cấp cho mục đích công việc, không tự ý can thiệp cấu hình.
+Làm mất thiết bị phải báo ngay cho Nhân sự &amp; IT.
+Mọi yêu cầu hỗ trợ kỹ thuật liên hệ bộ phận IT.</textarea>
+        </div>
+    </div><!-- /section-handover -->
+
     <div id="section-audit" class="hidden">
 
         <div class="page-header">
@@ -1086,6 +1165,26 @@
 html[data-theme="dark"] .cmp-tab-inactive { background:#2a2a2a !important; color:#f2f2f2 !important; }
 #cmp-page-subtitle { color:#5a5a5a !important; }
 html[data-theme="dark"] #cmp-page-subtitle { color:#c8c8c8 !important; }
+
+/* ─────── In biên bản bàn giao thiết bị ─────── */
+#handoverPrintArea { display:none; }
+@media print {
+    body * { visibility: hidden; }
+    #handoverPrintArea, #handoverPrintArea * { visibility: visible; }
+    #handoverPrintArea {
+        display:block; position:absolute; top:0; left:0; width:100%;
+        padding:24px; color:#000; background:#fff; font-family:Arial,Helvetica,sans-serif; font-size:12px;
+    }
+    #handoverPrintArea h2 { font-size:16px;text-align:center;margin:0 0 2px; }
+    #handoverPrintArea h4 { font-size:11px;text-align:center;margin:0 0 14px;color:#c00;font-weight:700; }
+    #handoverPrintArea h3 { font-size:13px;margin:16px 0 8px;border-bottom:1px solid #999;padding-bottom:3px; }
+    #handoverPrintArea table { width:100%;border-collapse:collapse;margin-bottom:8px; }
+    #handoverPrintArea th, #handoverPrintArea td { border:1px solid #999;padding:5px 7px;font-size:11px;text-align:left; }
+    #handoverPrintArea th { background:#eee !important;-webkit-print-color-adjust:exact;print-color-adjust:exact; }
+    #handoverPrintArea ul { margin:4px 0;padding-left:18px; }
+    #handoverPrintArea .ho-sig-table td { height:70px;vertical-align:bottom;text-align:center; }
+    #handoverPrintArea .ho-note { white-space:pre-line;font-size:11px; }
+}
 .eu-status-row { display: flex; gap: 10px; }
 .eu-status-btn {
     flex: 1; height: 40px; border-radius: 6px; border: 2px solid var(--border);
@@ -1149,18 +1248,34 @@ function hideLoading()  { document.getElementById('loadingOverlay').classList.re
 
 // ─────────────────────── SECTION SWITCH ───────────────────────
 function showSection(id, navBtn) {
-    document.querySelectorAll('#section-dashboard, #section-groups, #section-computers, #section-audit').forEach(s => s.classList.add('hidden'));
+    document.querySelectorAll('#section-dashboard, #section-groups, #section-computers, #section-handover, #section-audit').forEach(s => s.classList.add('hidden'));
     const el = document.getElementById(id);
     if (el) el.classList.remove('hidden');
     if (id === 'section-computers') loadAssets();
+    if (id === 'section-handover') _hoPopulateUserSelect();
 
     document.querySelectorAll('.sidebar-nav .nav-item').forEach(b => b.classList.remove('active'));
     if (navBtn) navBtn.classList.add('active');
 
-    const labels = { 'section-dashboard': 'Dashboard', 'section-groups': 'Quản Lý Group', 'section-computers': 'Quản Lý Computer', 'section-audit': 'Audit Log' };
+    const labels = { 'section-dashboard': 'Dashboard', 'section-groups': 'Quản Lý Group', 'section-computers': 'Quản Lý Computer', 'section-handover': 'Bàn Giao Thiết Bị', 'section-audit': 'Audit Log' };
     document.getElementById('breadcrumbCurrent').textContent = labels[id] || id;
 
     closeAllPanels();
+}
+
+// Điền dropdown chọn nhân viên bằng cách sao chép option có sẵn (không gọi AD/server thêm lần nào)
+let _hoUserSelectFilled = false;
+function _hoPopulateUserSelect() {
+    if (_hoUserSelectFilled) return;
+    const source = document.getElementById('gm_add_user_select');
+    const target = document.getElementById('ho_user');
+    if (source && target) {
+        Array.from(source.options).forEach(opt => {
+            if (!opt.value) return; // bỏ option rỗng của source
+            target.appendChild(new Option(opt.textContent, opt.value));
+        });
+    }
+    _hoUserSelectFilled = true;
 }
 
 // ─────────────────────── PANELS ───────────────────────
@@ -1836,6 +1951,149 @@ function importComputerCSV(input) {
     }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối','danger'); });
 }
 
+// ─────────────────────── BÀN GIAO THIẾT BỊ ───────────────────────
+const HO_ACCOUNT_ROWS = [
+    { name:'Email',          url:'https://mail.aureole-it.vn' },
+    { name:'Redmine',        url:'http://192.168.136.9:8009' },
+    { name:'GitLab',         url:'http://git.aureole-it.vn' },
+    { name:'SVN',            url:'http://192.168.136.9:3343' },
+    { name:'Working report', url:'http://pj.aureole-it.vn' },
+    { name:'PowerEgg',       url:'http://pesvr00/pe4j/aadlogin' },
+    { name:'Teams',          url:'https://teams.microsoft.com' },
+];
+let _hoComputers = [];
+
+function _hoRenderAccountTable(username) {
+    const tbody = document.getElementById('ho_account_tbody');
+    tbody.innerHTML = HO_ACCOUNT_ROWS.map((a,i)=>`
+        <tr>
+            <td>${i+1}</td>
+            <td><strong>${a.name}</strong></td>
+            <td><input type="text" class="ho_acc_url" value="${a.url}" style="width:100%;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;background:var(--card);color:var(--text);font-size:12px;"></td>
+            <td><input type="text" class="ho_acc_user" value="${username||''}" style="width:100%;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;background:var(--card);color:var(--text);font-size:12px;"></td>
+            <td><input type="text" class="ho_acc_pass" placeholder="Nhập mật khẩu" style="width:100%;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;background:var(--card);color:var(--text);font-size:12px;"></td>
+        </tr>
+    `).join('');
+}
+
+function loadHandoverInfo() {
+    const username = document.getElementById('ho_user').value;
+    _hoRenderAccountTable(username);
+    document.getElementById('ho_win_account').value = username || '';
+    document.getElementById('ho_computer_picker_wrap').style.display = 'none';
+    document.getElementById('ho_no_computer_hint').style.display = 'none';
+    _hoComputers = [];
+    if (!username) return;
+
+    fetch('/api/user-computers/' + encodeURIComponent(username))
+    .then(r=>r.json())
+    .then(data=>{
+        _hoComputers = data.computers || [];
+        if (_hoComputers.length === 0) {
+            document.getElementById('ho_no_computer_hint').style.display = '';
+        } else if (_hoComputers.length === 1) {
+            _hoFillDevice(_hoComputers[0]);
+        } else {
+            const sel = document.getElementById('ho_computer_picker');
+            sel.innerHTML = _hoComputers.map(c=>`<option value="${c.id}">${c.computer_name} (${c.device_type||'—'})</option>`).join('');
+            document.getElementById('ho_computer_picker_wrap').style.display = '';
+            _hoFillDevice(_hoComputers[0]);
+        }
+    })
+    .catch(()=>showToast('Không tải được thông tin máy của user','danger'));
+}
+
+function applyHandoverComputer() {
+    const id = parseInt(document.getElementById('ho_computer_picker').value, 10);
+    const c = _hoComputers.find(x=>x.id===id);
+    if (c) _hoFillDevice(c);
+}
+
+function _hoFillDevice(c) {
+    document.getElementById('ho_device_type').value  = c.device_type || '';
+    document.getElementById('ho_model').value        = c.model || '';
+    document.getElementById('ho_cpu').value          = c.cpu || '';
+    document.getElementById('ho_ram').value          = c.ram || '';
+    document.getElementById('ho_ssd').value          = c.ssd || '';
+    document.getElementById('ho_computer_name').value= c.computer_name || '';
+    document.getElementById('ho_bitlocker').value    = c.bitlocker || '';
+}
+
+function printHandover() {
+    const username = document.getElementById('ho_user').value;
+    if (!username) { showToast('Vui lòng chọn nhân viên trước','warning'); return; }
+    const employeeName = document.getElementById('ho_user').selectedOptions[0].textContent.split('—')[1]?.trim() || username;
+
+    const g = id => (document.getElementById(id).value || '').trim();
+    const deviceRow = `
+        <tr>
+            <td>1</td>
+            <td>${g('ho_device_type')||'—'}</td>
+            <td>${g('ho_model')||'—'}</td>
+            <td>${g('ho_cpu')||'—'}</td>
+            <td>${g('ho_ram')||'—'}</td>
+            <td>${g('ho_ssd')||'—'}</td>
+            <td>${g('ho_accessories')||'—'}</td>
+        </tr>`;
+
+    const accountRows = Array.from(document.querySelectorAll('#ho_account_tbody tr')).map((tr,i)=>{
+        const name = HO_ACCOUNT_ROWS[i].name;
+        const url  = tr.querySelector('.ho_acc_url').value;
+        const acc  = tr.querySelector('.ho_acc_user').value;
+        const pass = tr.querySelector('.ho_acc_pass').value;
+        return `<tr><td>${i+1}</td><td><strong>${name}</strong></td><td>${url}</td><td>${acc||'—'}</td><td>${pass||'—'}</td></tr>`;
+    }).join('');
+
+    const notes = g('ho_notes').split('\n').filter(x=>x.trim()).map(x=>`<li>${x}</li>`).join('');
+    const today = new Date();
+    const dateStr = `Ngày ${String(today.getDate()).padStart(2,'0')} Tháng ${String(today.getMonth()+1).padStart(2,'0')} Năm ${today.getFullYear()}`;
+
+    document.getElementById('handoverPrintArea').innerHTML = `
+        <h2>AUREOLE INFORMATION TECHNOLOGY, INC</h2>
+        <h4>[Bí Mật]</h4>
+        <p>Kính gửi: <strong>${employeeName}</strong></p>
+        <p>Chào mừng bạn đã gia nhập đại gia đình AIT! Phòng Nhân sự cùng Bộ phận IT gửi đến bạn thông tin thiết bị và tài khoản làm việc. Vui lòng giữ bảo mật toàn bộ thông tin trong tài liệu này.</p>
+
+        <h3>1. Thiết bị được bàn giao</h3>
+        <table>
+            <thead><tr><th>STT</th><th>Thiết bị</th><th>Model</th><th>CPU</th><th>RAM</th><th>SSD</th><th>Phụ kiện kèm theo</th></tr></thead>
+            <tbody>${deviceRow}</tbody>
+        </table>
+        <p><strong>Thông tin thiết bị:</strong></p>
+        <ul>
+            <li>Computer: ${g('ho_computer_name')||'—'}</li>
+            <li>OS: ${g('ho_os')||'—'}</li>
+            <li>BitLocker: ${g('ho_bitlocker')||'—'}</li>
+            <li>Tài khoản Windows: ${g('ho_win_account')||'—'}</li>
+            <li>Mật khẩu Windows: ${g('ho_win_password')||'—'}</li>
+        </ul>
+
+        <h3>2. Thông tin tài khoản</h3>
+        <table>
+            <thead><tr><th>STT</th><th>Tên</th><th>URL</th><th>Tài khoản</th><th>Mật khẩu</th></tr></thead>
+            <tbody>${accountRows}</tbody>
+        </table>
+
+        <h3>3. Ghi chú quan trọng</h3>
+        <ul class="ho-note">${notes || ''}</ul>
+
+        <h3>4. Thông tin hỗ trợ</h3>
+        <table>
+            <tbody><tr>
+                <td><strong>Bộ phận IT:</strong><br>- Mr. Nguyễn Hoàng Long<br>- Phone: 0703830266<br>- Email: longnh@aureole-it.vn</td>
+                <td><strong>Bộ phận Nhân sự:</strong><br>- Ms. Phạm Thị Mỹ Linh<br>- Tel: 028 3911 0200 (Ext: 0)<br>- Email: linhptm@aureole-it.vn</td>
+            </tr></tbody>
+        </table>
+
+        <h3>5. Biên bản bàn giao</h3>
+        <table class="ho-sig-table">
+            <thead><tr><th style="text-align:center;">${dateStr}<br>Nhân viên nhận thiết bị<br>(Ký, ghi rõ họ tên)</th><th style="text-align:center;">Nhân viên IT<br>(Ký, ghi rõ họ tên)</th></tr></thead>
+            <tbody><tr><td></td><td></td></tr></tbody>
+        </table>
+    `;
+    setTimeout(()=>window.print(), 100);
+}
+
 // ─────────────────────── EDIT USER: TABS ───────────────────────
 function euSwitchTab(tab) {
     ['info','group','computer'].forEach(t => {
@@ -1970,8 +2228,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const m = document.getElementById(id);
         if (m) m.addEventListener('click', e => { if (e.target===m) m.classList.remove('show'); });
     });
+
+    // Bàn giao thiết bị: khởi tạo bảng tài khoản mặc định (trống)
+    if (document.getElementById('ho_account_tbody')) _hoRenderAccountTable('');
 });
 </script>
+
+<!-- ═══════════ PRINT AREA (bản in bàn giao thiết bị) ═══════════ -->
+<div id="handoverPrintArea"></div>
 
 </body>
 </html>

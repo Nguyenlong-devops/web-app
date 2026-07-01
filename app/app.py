@@ -1214,12 +1214,18 @@ def api_get_user_computers(username):
     conn = get_db_connection(); cur = conn.cursor()
     try:
         cur.execute("""
-            SELECT c.id, c.computer_name, c.cpu, c.ram, c.status
+            SELECT c.id, c.computer_name, c.cpu, c.ram, c.status,
+                   c.asset_code, c.device_type, c.brand, c.model, c.ssd, c.hdd, c.bitlocker, c.location
             FROM user_computers uc JOIN computers c ON c.id=uc.computer_id
             WHERE uc.sam_account_name=%s
+            ORDER BY c.id DESC
         """, (username,))
         rows = cur.fetchall()
-        return jsonify({"computers": [{"id":r[0],"computer_name":r[1],"cpu":r[2],"ram":r[3],"status":r[4]} for r in rows]})
+        return jsonify({"computers": [{
+            "id":r[0],"computer_name":r[1],"cpu":r[2],"ram":r[3],"status":r[4],
+            "asset_code":r[5],"device_type":r[6],"brand":r[7],"model":r[8],
+            "ssd":r[9],"hdd":r[10],"bitlocker":r[11],"location":r[12]
+        } for r in rows]})
     finally: cur.close(); conn.close()
 
 @app.route('/api/user-computers', methods=['POST'])
