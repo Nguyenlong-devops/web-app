@@ -188,6 +188,57 @@
     </div>
 </div>
 
+<!-- ══════════════════ MODAL: Lọc OU hiển thị ══════════════════ -->
+<div id="ouFilterModal" class="modal">
+    <div class="modal-content" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title" id="ouFilterModalTitle">⚙ Chọn OU hiển thị</div>
+            <button class="close-btn" onclick="closeModal('ouFilterModal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <div style="font-size:12px;color:var(--text-soft);margin-bottom:10px;">
+                Chỉ tích các OU muốn hiển thị. Không tích OU nào = hiển thị tất cả (mặc định). Tích một OU cha sẽ tự động bao gồm các OU con bên trong.
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:10px;">
+                <input type="text" id="ouFilterSearch" class="search-box" placeholder="Tìm OU..." oninput="_filterOuFilterList()" style="flex:1;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="_toggleAllOuFilter(false)">Bỏ chọn hết</button>
+            </div>
+            <div id="ouFilterList" style="max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:8px;">
+                <div style="text-align:center;color:var(--text-muted);padding:20px;">Đang tải danh sách OU...</div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('ouFilterModal')">Hủy</button>
+            <button class="btn btn-primary" onclick="saveOuFilter()">💾 Lưu</button>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════ MODAL: Move Computer sang OU khác ══════════════════ -->
+<div id="moveComputerModal" class="modal">
+    <div class="modal-content" style="max-width:440px;">
+        <div class="modal-header">
+            <div class="modal-title">↪ Move Computer</div>
+            <button class="close-btn" onclick="closeModal('moveComputerModal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <div style="font-size:13px;margin-bottom:12px;">
+                Máy: <strong id="mv_computer_name" style="font-family:monospace;"></strong>
+            </div>
+            <div class="form-group">
+                <label>Chuyển đến OU</label>
+                <select id="mv_ou_select" style="height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                    <option value="">— Chọn OU đích —</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('moveComputerModal')">Hủy</button>
+            <button class="btn btn-primary" onclick="submitMoveComputer()">↪ Move</button>
+        </div>
+    </div>
+</div>
+
 <!-- ══════════════════ MODAL: Add/Edit Computer ══════════════════ -->
 <div id="computerModal" class="modal">
     <div class="modal-content" style="max-width:560px;">
@@ -509,6 +560,7 @@
                     </select>
                     {% if session.get('is_admin') %}
                     <a href="/export-users-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export</a>
+                    <button class="btn btn-secondary btn-sm" title="Chọn OU hiển thị" onclick="openOuFilterModal('users')">⚙ Lọc OU</button>
                     <button class="btn btn-primary btn-sm" onclick="openPanel('create-user-panel', null); loadOuSelect()">+ Tạo User</button>
                     {% endif %}
                 </div>
@@ -736,13 +788,16 @@
         </div>
 
         <!-- Tabs -->
-        <div style="display:flex;gap:4px;margin-bottom:12px;">
+        <div style="display:flex;gap:4px;margin-bottom:12px;align-items:center;">
             <button id="tab_assets" class="cmp-tab cmp-tab-active" onclick="switchComputerTab('assets')">
                 📋 Danh Sách Tài Sản
             </button>
             <button id="tab_domain" class="cmp-tab cmp-tab-inactive" onclick="switchComputerTab('domain')">
                 🖥 Máy Trong Domain
             </button>
+            {% if session.get('is_admin') %}
+            <button class="btn btn-secondary btn-sm" style="margin-left:auto;" title="Chọn OU hiển thị cho danh sách máy trong domain" onclick="openOuFilterModal('computers')">⚙ Lọc OU</button>
+            {% endif %}
         </div>
 
         <!-- Tab: Tài sản -->
@@ -803,10 +858,11 @@
                                 <th onclick="sortTable('domainComputerTable',0)" style="cursor:pointer;user-select:none;">Tên Máy <span>⇅</span></th>
                                 <th onclick="sortTable('domainComputerTable',1)" style="cursor:pointer;user-select:none;">Hệ Điều Hành <span>⇅</span></th>
                                 <th>Distinguished Name</th>
+                                <th style="width:160px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="domainComputerTableBody">
-                            <tr><td colspan="3" style="text-align:center;padding:30px;color:var(--text-muted);">Bấm tab để tải dữ liệu</td></tr>
+                            <tr><td colspan="4" style="text-align:center;padding:30px;color:var(--text-muted);">Bấm tab để tải dữ liệu</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -947,6 +1003,7 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
                     <option>UNASSIGN_COMPUTER</option>
                     <option>IMPORT_COMPUTERS</option>
                     <option>HANDOVER_DEVICE</option>
+                    <option>DELETE_DOMAIN_COMPUTER</option>
                     <option>CLEAR_AUDIT_LOG</option>
                 </select>
             </div>
@@ -986,6 +1043,7 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
                                     'DELETE_COMPUTER': 'danger', 'ASSIGN_COMPUTER': 'info',
                                     'UNASSIGN_COMPUTER': 'warning', 'IMPORT_COMPUTERS': 'info',
                                     'HANDOVER_DEVICE': 'success',
+                                    'DELETE_DOMAIN_COMPUTER': 'danger',
                                     'CLEAR_AUDIT_LOG': 'danger'
                                 } %}
                                 <span class="badge badge-{{ action_color.get(r[3], 'secondary') }}">{{ r[3] }}</span>
@@ -1724,8 +1782,12 @@ function _loadOuIntoSelect(selId, defaultText) {
         (data.ous||[]).forEach(ou=>{
             const opt=document.createElement('option');
             opt.value=ou.dn;
-            const d=(ou.dn.match(/OU=/gi)||[]).length;
-            opt.textContent='  '.repeat(Math.max(0,d-1))+'📁 '+ou.name;
+            if (ou.is_container) {
+                opt.textContent = '📦 ' + ou.name + ' (mặc định — máy mới join)';
+            } else {
+                const d=(ou.dn.match(/OU=/gi)||[]).length;
+                opt.textContent='  '.repeat(Math.max(0,d-1))+'📁 '+ou.name;
+            }
             sel.appendChild(opt);
         });
     }).catch(()=>{});
@@ -1733,6 +1795,116 @@ function _loadOuIntoSelect(selId, defaultText) {
 function loadOuSelect()      { _loadOuIntoSelect('ou_dn_select','— Chọn OU —'); }
 function loadGroupOuSelect() { _loadOuIntoSelect('cg_ou_select','— CN=Users (mặc định) —'); }
 function loadEditOuSelect()  { _loadOuIntoSelect('eu_ou_select','— Giữ nguyên OU hiện tại —'); }
+
+// ─────────────────────── LỌC OU HIỂN THỊ (Users / Computers) ───────────────────────
+let _ouFilterSection = null;
+const _OU_FILTER_LABELS = { users: '👤 Chọn OU hiển thị — Users', computers: '🖥 Chọn OU hiển thị — Computers (Domain)' };
+
+function openOuFilterModal(section) {
+    _ouFilterSection = section;
+    document.getElementById('ouFilterModalTitle').textContent = _OU_FILTER_LABELS[section] || '⚙ Chọn OU hiển thị';
+    document.getElementById('ouFilterSearch').value = '';
+    const list = document.getElementById('ouFilterList');
+    list.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;">Đang tải danh sách OU...</div>';
+    document.getElementById('ouFilterModal').classList.add('show');
+
+    Promise.all([
+        fetch('/api/ous').then(r=>r.json()),
+        fetch('/api/ou-filter/'+section).then(r=>r.json())
+    ]).then(([ouData, filterData])=>{
+        const ous = ouData.ous || [];
+        const selected = new Set(filterData.selected || []);
+        if (!ous.length) {
+            list.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;">Không tìm thấy OU nào trong domain</div>';
+            return;
+        }
+        list.innerHTML = ous.map(ou=>{
+            const depth = (ou.dn.match(/OU=/gi)||[]).length;
+            const indent = ou.is_container ? 0 : Math.max(0, depth - 1) * 16;
+            const checked = selected.has(ou.dn) ? 'checked' : '';
+            const esc = ou.dn.replace(/"/g,'&quot;');
+            const icon = ou.is_container ? '📦' : '📁';
+            const nameLabel = ou.is_container ? `${ou.name} <span style="color:var(--text-muted);font-weight:400;">(mặc định — máy mới join)</span>` : ou.name;
+            const rowStyle = ou.is_container
+                ? 'display:flex;align-items:center;gap:8px;padding:5px 6px;padding-left:6px;border-radius:4px;cursor:pointer;font-size:12.5px;background:var(--bg-secondary);border:1px dashed var(--border-strong);margin-bottom:4px;'
+                : `display:flex;align-items:center;gap:8px;padding:5px 6px;padding-left:${indent+6}px;border-radius:4px;cursor:pointer;font-size:12.5px;`;
+            return `<label class="ou-filter-row" style="${rowStyle}" data-name="${(ou.name||'').toLowerCase()}" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='${ou.is_container?'var(--bg-secondary)':''}'">
+                <input type="checkbox" value="${esc}" ${checked} style="flex-shrink:0;">
+                <span>${icon} ${nameLabel}</span>
+                <span style="margin-left:auto;color:var(--text-muted);font-size:10px;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;">${ou.dn}</span>
+            </label>`;
+        }).join('');
+    }).catch(()=>{
+        list.innerHTML = '<div style="color:var(--danger);text-align:center;padding:20px;">Lỗi tải danh sách OU</div>';
+    });
+}
+
+function _filterOuFilterList() {
+    const f = document.getElementById('ouFilterSearch').value.toLowerCase();
+    document.querySelectorAll('#ouFilterList .ou-filter-row').forEach(row=>{
+        row.style.display = (!f || row.dataset.name.includes(f)) ? '' : 'none';
+    });
+}
+
+function _toggleAllOuFilter(check) {
+    document.querySelectorAll('#ouFilterList input[type=checkbox]').forEach(cb=>cb.checked = check);
+}
+
+function saveOuFilter() {
+    if (!_ouFilterSection) return;
+    const selected = Array.from(document.querySelectorAll('#ouFilterList input[type=checkbox]:checked')).map(cb=>cb.value);
+    showLoading();
+    fetch('/api/ou-filter/'+_ouFilterSection, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ ous: selected })
+    }).then(r=>r.json()).then(d=>{
+        hideLoading();
+        if (d.status === 'success') {
+            closeModal('ouFilterModal');
+            showToast(selected.length ? `Đã lưu bộ lọc: ${selected.length} OU` : 'Đã bỏ lọc — hiển thị tất cả', 'success');
+            if (_ouFilterSection === 'users') {
+                location.reload();
+            } else if (_ouFilterSection === 'computers') {
+                _domainComputersLoaded = false;
+                loadDomainComputers();
+            }
+        } else {
+            showToast(d.message || 'Lưu thất bại', 'danger');
+        }
+    }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối', 'danger'); });
+}
+
+// ─────────────────────── MOVE COMPUTER SANG OU KHÁC ───────────────────────
+let _mvDn = null;
+function openMoveComputerModal(dn, name) {
+    _mvDn = dn;
+    document.getElementById('mv_computer_name').textContent = name || dn;
+    _loadOuIntoSelect('mv_ou_select', '— Chọn OU đích —');
+    document.getElementById('moveComputerModal').classList.add('show');
+}
+
+function submitMoveComputer() {
+    const sel = document.getElementById('mv_ou_select');
+    const newOu = sel ? sel.value : '';
+    const name = document.getElementById('mv_computer_name').textContent;
+    if (!newOu) { showToast('Vui lòng chọn OU đích', 'warning'); return; }
+    if (!_mvDn) { showToast('Thiếu Distinguished Name của máy', 'danger'); return; }
+    showLoading();
+    fetch('/api/move-domain-computer', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ dn: _mvDn, new_ou: newOu, name })
+    }).then(r=>r.json()).then(d=>{
+        hideLoading();
+        if (d.status === 'success') {
+            closeModal('moveComputerModal');
+            showToast(`Đã move "${name}" sang OU mới`, 'success');
+            _domainComputersLoaded = false;
+            loadDomainComputers();
+        } else {
+            showToast(d.message || 'Move thất bại', 'danger');
+        }
+    }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối', 'danger'); });
+}
 
 // ─────────────────────── CREATE GROUP MODAL ───────────────────────
 function openCreateGroupModal() {
@@ -1897,12 +2069,12 @@ let _domainComputersLoaded = false;
 function loadDomainComputers() {
     if (_domainComputersLoaded) return;
     const tbody = document.getElementById('domainComputerTableBody');
-    tbody.innerHTML='<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted);">Đang tải từ AD...</td></tr>';
+    tbody.innerHTML='<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted);">Đang tải từ AD...</td></tr>';
     fetch('/api/domain-computers').then(r=>r.json()).then(data=>{
         _domainComputersLoaded = true;
         const comps = data.computers||[];
         if (!comps.length) {
-            tbody.innerHTML='<tr><td colspan="3" style="text-align:center;padding:30px;color:var(--text-muted);">Không có máy nào trong domain</td></tr>';
+            tbody.innerHTML='<tr><td colspan="4" style="text-align:center;padding:30px;color:var(--text-muted);">Không có máy nào trong domain</td></tr>';
             return;
         }
         tbody.innerHTML = comps.map(c=>`
@@ -1910,9 +2082,34 @@ function loadDomainComputers() {
                 <td><strong style="font-family:monospace;">${c.name||''}</strong></td>
                 <td style="font-size:12px;">${c.os||'—'}</td>
                 <td style="font-size:11px;color:var(--text-muted);">${c.dn||''}</td>
+                <td>
+                    <div style="display:flex;gap:4px;">
+                        <button class="btn btn-secondary btn-sm" onclick="openMoveComputerModal('${(c.dn||'').replace(/'/g,"\\'")}','${(c.name||'').replace(/'/g,"\\'")}')" title="Move sang OU khác">↪ Move</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteDomainComputer('${(c.dn||'').replace(/'/g,"\\'")}','${(c.name||'').replace(/'/g,"\\'")}')" title="Xóa khỏi AD (dùng khi cần rejoin domain)">🗑 Xóa</button>
+                    </div>
+                </td>
             </tr>
         `).join('');
-    }).catch(()=>{ tbody.innerHTML='<tr><td colspan="3" style="text-align:center;color:var(--danger);padding:20px;">Lỗi tải dữ liệu domain</td></tr>'; });
+    }).catch(()=>{ tbody.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--danger);padding:20px;">Lỗi tải dữ liệu domain</td></tr>'; });
+}
+
+function deleteDomainComputer(dn, name) {
+    if (!dn) { showToast('Thiếu Distinguished Name của máy này','danger'); return; }
+    if (!confirm(`Xóa "${name}" khỏi Active Directory?\n\nDùng khi máy này cần rejoin domain nhưng báo lỗi "đã có trong domain". Máy sẽ cần join lại domain từ đầu sau khi xóa. Hành động này không thể hoàn tác.`)) return;
+    showLoading();
+    fetch('/api/domain-computers', {
+        method: 'DELETE', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ dn, name })
+    }).then(r=>r.json()).then(d=>{
+        hideLoading();
+        if (d.status === 'success') {
+            showToast(`Đã xóa "${name}" khỏi AD`,'success');
+            _domainComputersLoaded = false;
+            loadDomainComputers();
+        } else {
+            showToast(d.message || 'Xóa thất bại','danger');
+        }
+    }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối','danger'); });
 }
 
 function openAddComputerModal() {

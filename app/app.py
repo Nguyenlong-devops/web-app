@@ -141,6 +141,14 @@ def init_db():
            SELECT TRIM(assigned_user), id FROM computers
            WHERE assigned_user IS NOT NULL AND TRIM(assigned_user) <> ''
            ON CONFLICT DO NOTHING""",
+
+        # 11. Bảng lưu OU nào được chọn để hiển thị, theo từng khu vực (users / computers)
+        """CREATE TABLE IF NOT EXISTS ou_filters (
+            id         SERIAL PRIMARY KEY,
+            section    VARCHAR(20)  NOT NULL,
+            ou_dn      VARCHAR(512) NOT NULL,
+            UNIQUE(section, ou_dn)
+        )""",
     ]
 
     for sql in steps:
@@ -331,6 +339,60 @@ def get_ad_users_and_groups(cfg, force_refresh=False):
 
     _AD_CACHE.update({'users': ad_users, 'groups': ad_groups, 'ts': now, 'domain_key': domain_key})
     return ad_users, ad_groups
+
+# ─────────────────────────────────────────────
+#  Bộ lọc OU hiển thị (riêng cho từng khu vực: users / computers)
+# ─────────────────────────────────────────────
+_OU_FILTER_SECTIONS = ('users', 'computers')
+
+def get_ou_filter(section: str):
+    """Trả về danh sách DistinguishedName các OU đang được chọn để hiển thị
+    cho khu vực (section) tương ứng. Danh sách rỗng = không lọc (hiển thị tất cả)."""
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT ou_dn FROM ou_filters WHERE section=%s ORDER BY ou_dn", (section,))
+        return [r[0] for r in cur.fetchall()]
+    except Exception as e:
+        print(f"get_ou_filter error: {e}")
+        return []
+    finally:
+        cur.close(); conn.close()
+
+def save_ou_filter(section: str, ou_list):
+    """Ghi đè toàn bộ danh sách OU được chọn cho một khu vực."""
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM ou_filters WHERE section=%s", (section,))
+        cleaned = sorted({ou.strip() for ou in ou_list if ou and ou.strip()})
+        for ou_dn in cleaned:
+            cur.execute("INSERT INTO ou_filters (section, ou_dn) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+                        (section, ou_dn))
+        conn.commit()
+        return cleaned
+    except Exception as e:
+        conn.rollback()
+        print(f"save_ou_filter error: {e}")
+        return None
+    finally:
+        cur.close(); conn.close()
+
+def _dn_matches_selected_ous(dn: str, selected_ous: list) -> bool:
+    """True nếu 'dn' nằm trong một trong các OU đã chọn (bao gồm cả OU con bên trong)."""
+    if not dn:
+        return False
+    dn_lower = dn.lower()
+    for ou_dn in selected_ous:
+        if dn_lower.endswith(ou_dn.lower()):
+            return True
+    return False
+
+def filter_by_ou(items: list, selected_ous: list, dn_key):
+    """Lọc danh sách item theo OU đã chọn. Nếu selected_ous rỗng -> trả về nguyên danh sách.
+    dn_key: tên field chứa DN (dict) hoặc callable(item) -> dn."""
+    if not selected_ous:
+        return items
+    getter = dn_key if callable(dn_key) else (lambda it: it.get(dn_key, ''))
+    return [it for it in items if _dn_matches_selected_ous(getter(it), selected_ous)]
 
 # ─────────────────────────────────────────────
 #  Auth decorators
@@ -577,6 +639,11 @@ def change_password():
 def index():
     cfg = get_active_domain_config()
     ad_users, ad_groups = get_ad_users_and_groups(cfg)
+
+    # Áp dụng bộ lọc OU (nếu admin đã cấu hình) — không chọn OU nào = hiển thị tất cả
+    users_ou_filter = get_ou_filter('users')
+    if users_ou_filter:
+        ad_users = filter_by_ou(ad_users, users_ou_filter, lambda u: u.get('DistinguishedName', ''))
 
     software_list = []
     assigned_list = []
@@ -1099,20 +1166,92 @@ def api_get_groups():
 @login_required
 def api_get_ous():
     cfg = get_active_domain_config()
+    # Ngoài các OU thật, bổ sung container mặc định "Computers" (CN=Computers,...) —
+    # đây là nơi các máy mới join domain tự động rơi vào (không phải OU nên
+    # Get-ADOrganizationalUnit không trả về), lấy qua (Get-ADDomain).ComputersContainer
+    # để đúng cả trường hợp container này đã bị redirect bằng redircmp.exe.
     ps_cmd = (
-        "Get-ADOrganizationalUnit -Filter * -Properties Name,DistinguishedName | "
-        "Select-Object Name,DistinguishedName | "
-        "Sort-Object DistinguishedName | ConvertTo-Json -Compress"
+        "Import-Module ActiveDirectory; "
+        "$ou = @(Get-ADOrganizationalUnit -Filter * -Properties Name,DistinguishedName | "
+        "Select-Object Name,DistinguishedName,@{Name='IsContainer';Expression={$false}}); "
+        "$cc = (Get-ADDomain).ComputersContainer; "
+        "$container = [PSCustomObject]@{ Name='Computers'; DistinguishedName=$cc; IsContainer=$true }; "
+        "$all = @($container) + $ou; "
+        "$all | Sort-Object DistinguishedName | ConvertTo-Json -Compress"
     )
     out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
     try:
         ous = json.loads(out.strip())
         if isinstance(ous, dict): ous = [ous]
         elif not isinstance(ous, list): ous = []
-        result = [{"name": o.get("Name",""), "dn": o.get("DistinguishedName","")} for o in ous if o.get("DistinguishedName")]
+        result = [{"name": o.get("Name",""), "dn": o.get("DistinguishedName",""),
+                   "is_container": bool(o.get("IsContainer"))} for o in ous if o.get("DistinguishedName")]
     except Exception:
         result = []
     return jsonify({"ous": result})
+
+# ─────────────────────────────────────────────
+#  API — bộ lọc OU hiển thị (theo khu vực: users / computers)
+# ─────────────────────────────────────────────
+@app.route('/api/ou-filter/<section>', methods=['GET'])
+@domain_required
+@login_required
+def api_get_ou_filter(section):
+    if section not in _OU_FILTER_SECTIONS:
+        return jsonify({"status": "error", "message": "Khu vực không hợp lệ"}), 400
+    return jsonify({"section": section, "selected": get_ou_filter(section)})
+
+@app.route('/api/ou-filter/<section>', methods=['POST'])
+@domain_required
+@admin_required
+def api_save_ou_filter(section):
+    if section not in _OU_FILTER_SECTIONS:
+        return jsonify({"status": "error", "message": "Khu vực không hợp lệ"}), 400
+    data = request.get_json() or {}
+    ou_list = data.get('ous') or []
+    if not isinstance(ou_list, list):
+        return jsonify({"status": "error", "message": "Dữ liệu không hợp lệ"}), 400
+
+    saved = save_ou_filter(section, ou_list)
+    if saved is None:
+        return jsonify({"status": "error", "message": "Lưu cấu hình thất bại (DB error)"})
+
+    section_label = 'Users' if section == 'users' else 'Computers'
+    write_log(session['user'], 'SAVE_OU_FILTER', target=section,
+              detail=f"{section_label}: {len(saved)} OU được chọn" + (f" ({', '.join(saved)})" if saved else " (bỏ lọc, hiện tất cả)"))
+    return jsonify({"status": "success", "selected": saved})
+
+# ─────────────────────────────────────────────
+#  API — move computer sang OU khác trong AD
+# ─────────────────────────────────────────────
+@app.route('/api/move-domain-computer', methods=['POST'])
+@domain_required
+@admin_required
+def api_move_domain_computer():
+    cfg = get_active_domain_config()
+    data = request.get_json() or {}
+    dn      = (data.get('dn') or '').strip()
+    new_ou  = (data.get('new_ou') or '').strip()
+    name    = (data.get('name') or '').strip()
+
+    if not dn or not new_ou:
+        return jsonify({"status": "error", "message": "Thiếu Distinguished Name hoặc OU đích"})
+
+    # Escape dấu nháy đơn để tránh phá vỡ chuỗi lệnh PowerShell (double-quote escaping)
+    dn_esc     = dn.replace("'", "''")
+    new_ou_esc = new_ou.replace("'", "''")
+
+    ps_cmd = (
+        f"Import-Module ActiveDirectory; "
+        f"Move-ADObject -Identity '{dn_esc}' -TargetPath '{new_ou_esc}'"
+    )
+    out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    if ec != 0:
+        return jsonify({"status": "error", "message": err.strip() or "Move thất bại"})
+
+    write_log(session['user'], 'MOVE_COMPUTER', target=name or dn,
+              detail=f"Chuyển '{name or dn}' sang OU: {new_ou}")
+    return jsonify({"status": "success"})
 
 # ─────────────────────────────────────────────
 #  API — remove user from group
@@ -1296,7 +1435,36 @@ def api_domain_computers():
         elif not isinstance(comps, list): comps = []
         result = [{"name":c.get("Name",""), "os":c.get("OperatingSystem",""), "dn":c.get("DistinguishedName","")} for c in comps]
     except: result = []
+
+    # Áp dụng bộ lọc OU (nếu đã cấu hình) — không chọn OU nào = hiển thị tất cả
+    computers_ou_filter = get_ou_filter('computers')
+    if computers_ou_filter:
+        result = filter_by_ou(result, computers_ou_filter, 'dn')
+
     return jsonify({"computers": result})
+
+@app.route('/api/domain-computers', methods=['DELETE'])
+@domain_required
+@admin_required
+def api_delete_domain_computer():
+    """Xóa 1 computer object khỏi AD — dùng khi máy cần rejoin domain nhưng
+    báo lỗi 'đã có trong domain' do computer account cũ chưa được dọn."""
+    data = request.get_json() or {}
+    dn   = (data.get('dn') or '').strip()
+    name = (data.get('name') or '').strip()
+    if not dn:
+        return jsonify({"status":"error","message":"Thiếu Distinguished Name của máy cần xóa"})
+
+    cfg = get_active_domain_config()
+    dn_escaped = dn.replace("'", "''")  # escape dấu nháy đơn cho PowerShell
+    ps = f"Remove-ADComputer -Identity '{dn_escaped}' -Confirm:$false"
+    out, err, ec = run_powershell_ssh(ps, cfg, return_stderr=True)
+
+    if ec == 0:
+        write_log(session['user'], 'DELETE_DOMAIN_COMPUTER', target=name or dn,
+                  detail=f"Xóa computer object khỏi AD: {dn}")
+        return jsonify({"status":"success"})
+    return jsonify({"status":"error","message":err.strip() or "Xóa thất bại (kiểm tra quyền hoặc kết nối domain)"})
 
 @app.route('/export-computers-csv')
 @domain_required
