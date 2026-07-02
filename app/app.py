@@ -290,7 +290,7 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
 #    các lượt refresh liên tiếp không phải chờ AD trả lời lại từ đầu.
 # ─────────────────────────────────────────────
 _AD_CACHE = {'users': None, 'groups': None, 'ts': 0, 'domain_key': None}
-_AD_CACHE_TTL = 20  # giây
+_AD_CACHE_TTL = 120  # giây — tăng từ 20s lên 120s
 
 def get_ad_users_and_groups(cfg, force_refresh=False):
     domain_key = cfg.get('ssh_host') if cfg else None
@@ -460,35 +460,46 @@ def login():
         password = request.form.get('password', '')
         user_dn  = f"{username}{cfg['domain_suffix']}"
         try:
-            server = Server(cfg['ldap_host'], get_info=ALL, connect_timeout=5)
+            # get_info=None: không load LDAP schema, tiết kiệm 2-3 giây
+            server = Server(cfg['ldap_host'], get_info=None, connect_timeout=3)
             conn   = Connection(server, user=user_dn, password=password, authentication='SIMPLE')
             if conn.bind():
-                conn.search(
+                # Dùng server riêng có get_info để search (chỉ tốn 1 lần nhỏ)
+                s2   = Server(cfg['ldap_host'], get_info=None, connect_timeout=3)
+                conn2 = Connection(s2, user=user_dn, password=password, authentication='SIMPLE')
+                conn2.bind()
+                conn2.search(
                     search_base=cfg['base_dn'],
                     search_filter=f'(sAMAccountName={username})',
                     attributes=['memberOf', 'name']
                 )
                 is_admin     = False
                 display_name = username
-                if conn.entries:
-                    entry        = conn.entries[0]
+                if conn2.entries:
+                    entry        = conn2.entries[0]
                     display_name = str(entry.name) if 'name' in entry else username
                     groups       = entry.memberOf.values if 'memberOf' in entry else []
                     admin_keywords = [
                         cfg['admin_group_dn'].lower(),
                         "cn=domain admins",
-                        "cn=administrators,cn=builtin",  # Built-in Administrators group
+                        "cn=administrators,cn=builtin",
                     ]
                     for g in groups:
                         g_lower = g.lower()
                         if any(kw in g_lower for kw in admin_keywords):
                             is_admin = True
                             break
+                conn2.unbind()
+                conn.unbind()
                 session['user']         = username
                 session['display_name'] = display_name
                 session['is_admin']     = is_admin
-                conn.unbind()
                 write_log(username, 'LOGIN', detail=f"is_admin={is_admin}, domain={cfg['ldap_host']}")
+
+                # Warm AD cache ngầm sau khi login — user sẽ thấy dashboard nhanh hơn
+                import threading
+                threading.Thread(target=get_ad_users_and_groups, args=(cfg, True), daemon=True).start()
+
                 return redirect(url_for('index'))
             else:
                 error = "Tài khoản hoặc mật khẩu AD không chính xác."
@@ -921,7 +932,32 @@ def export_audit_csv():
 # ─────────────────────────────────────────────
 #  API — user licenses
 # ─────────────────────────────────────────────
+@app.route('/api/cache-status')
+@domain_required
+@login_required
+def api_cache_status():
+    """Trả về trạng thái cache AD — dùng để biết khi nào data sẵn sàng."""
+    age = time.time() - _AD_CACHE['ts'] if _AD_CACHE['ts'] else None
+    ready = (_AD_CACHE['users'] is not None and age is not None and age < _AD_CACHE_TTL)
+    return jsonify({
+        "ready": ready,
+        "user_count": len(_AD_CACHE['users']) if _AD_CACHE['users'] else 0,
+        "group_count": len(_AD_CACHE['groups']) if _AD_CACHE['groups'] else 0,
+        "cache_age_sec": round(age, 1) if age else None,
+    })
+
+@app.route('/api/refresh-cache', methods=['POST'])
+@domain_required
+@login_required
+def api_refresh_cache():
+    """Force refresh AD cache trong background."""
+    cfg = get_active_domain_config()
+    import threading
+    threading.Thread(target=get_ad_users_and_groups, args=(cfg, True), daemon=True).start()
+    return jsonify({"status": "refreshing"})
+
 @app.route('/api/user-licenses/<username>')
+
 @domain_required
 @admin_required
 def api_user_licenses(username):
