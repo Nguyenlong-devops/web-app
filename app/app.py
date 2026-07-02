@@ -142,6 +142,18 @@ def init_db():
            WHERE assigned_user IS NOT NULL AND TRIM(assigned_user) <> ''
            ON CONFLICT DO NOTHING""",
 
+        # 10b. Migration: 1 máy chỉ được gán cho 1 user tại 1 thời điểm — nếu dữ liệu cũ
+        #     có máy đang gán cho nhiều user cùng lúc, chỉ giữ lại lượt gán mới nhất
+        #     (id lớn nhất) và xóa các lượt gán cũ hơn, trước khi tạo UNIQUE index bên dưới.
+        """DELETE FROM user_computers a
+           USING user_computers b
+           WHERE a.computer_id = b.computer_id AND a.id < b.id""",
+
+        # 10c. Ràng buộc DB: mỗi computer_id chỉ xuất hiện tối đa 1 lần trong user_computers
+        #     (một máy không thể gán cho 2 user khác nhau cùng lúc)
+        """CREATE UNIQUE INDEX IF NOT EXISTS uq_user_computers_computer_id
+           ON user_computers (computer_id)""",
+
         # 11. Bảng lưu OU nào được chọn để hiển thị, theo từng khu vực (users / computers)
         """CREATE TABLE IF NOT EXISTS ou_filters (
             id         SERIAL PRIMARY KEY,
@@ -1605,19 +1617,43 @@ def api_get_user_computers(username):
 @admin_required
 def api_assign_computer():
     data = request.get_json()
+    username    = data.get('username')
+    computer_id = data.get('computer_id')
+    if not username or not computer_id:
+        return jsonify({"status":"error","message":"Thiếu username hoặc computer_id"})
+
     conn = get_db_connection(); cur = conn.cursor()
     try:
+        cur.execute("SELECT computer_name, asset_code FROM computers WHERE id=%s", (computer_id,))
+        crow = cur.fetchone()
+        device_label = f"{crow[0]}" + (f" (Mã: {crow[1]})" if crow and crow[1] else "") if crow else f"id={computer_id}"
+
+        # Một máy chỉ được gán cho 1 user tại 1 thời điểm — kiểm tra trước khi gán
+        cur.execute("SELECT sam_account_name FROM user_computers WHERE computer_id=%s", (computer_id,))
+        existing = cur.fetchone()
+        if existing and existing[0] != username:
+            return jsonify({
+                "status": "error",
+                "message": f"Thiết bị {device_label} đang được gán cho user \"{existing[0]}\". "
+                           f"Vui lòng thu hồi khỏi \"{existing[0]}\" trước khi gán cho user khác."
+            })
+        if existing and existing[0] == username:
+            return jsonify({"status": "success"})  # đã gán sẵn cho đúng user này, không cần làm gì thêm
+
         cur.execute("INSERT INTO user_computers (sam_account_name,computer_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
-                    (data['username'], data['computer_id']))
+                    (username, computer_id))
         conn.commit()
-        cur.execute("SELECT computer_name, asset_code FROM computers WHERE id=%s", (data['computer_id'],))
-        row = cur.fetchone()
-        device_label = f"{row[0]}" + (f" (Mã: {row[1]})" if row and row[1] else "") if row else f"id={data['computer_id']}"
-        write_log(session['user'], 'ASSIGN_COMPUTER', target=data['username'],
-                  detail=f"Gán thiết bị {device_label} cho user {data['username']}")
+        write_log(session['user'], 'ASSIGN_COMPUTER', target=username,
+                  detail=f"Gán thiết bị {device_label} cho user {username}")
         return jsonify({"status":"success"})
     except Exception as e:
-        conn.rollback(); return jsonify({"status":"error","message":str(e)})
+        conn.rollback()
+        # Trường hợp race condition: 2 request gán cùng 1 máy gần như đồng thời,
+        # unique index (computer_id) trên DB sẽ chặn request tới sau
+        err_str = str(e).lower()
+        if 'uq_user_computers_computer_id' in err_str or 'duplicate key' in err_str:
+            return jsonify({"status":"error","message":"Thiết bị này vừa được gán cho user khác. Vui lòng tải lại và thử lại."})
+        return jsonify({"status":"error","message":str(e)})
     finally: cur.close(); conn.close()
 
 @app.route('/api/user-computers', methods=['DELETE'])

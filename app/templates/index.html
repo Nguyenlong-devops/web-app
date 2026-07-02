@@ -2473,8 +2473,9 @@ function euRenderComputerSelect() {
     sel.disabled = true;
     fetch('/api/computers').then(r=>r.json()).then(data=>{
         sel.disabled = false;
-        const assignedIds = _euComputers.map(c=>c.id);
-        const available = (data.computers||[]).filter(c => c.status === 'in_use' && !assignedIds.includes(c.id));
+        // Chỉ hiện máy đang "Đang sử dụng" VÀ chưa gán cho bất kỳ user nào (kể cả user hiện tại,
+        // vì user hiện tại đã thấy máy đó trong danh sách "Đang gán" ở trên) — 1 máy chỉ thuộc về 1 user.
+        const available = (data.computers||[]).filter(c => c.status === 'in_use' && !c.assigned_user);
         sel.innerHTML = '<option value="">— Chọn máy —</option>';
         if (!available.length) {
             sel.innerHTML += '<option disabled>(Không còn máy nào để gán)</option>';
