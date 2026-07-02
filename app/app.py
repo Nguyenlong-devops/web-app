@@ -25,7 +25,8 @@ def get_db_connection():
         host=os.environ.get('DB_HOST', 'db'),
         database=os.environ.get('DB_NAME', 'it_dashboard'),
         user=os.environ.get('DB_USER', 'postgres'),
-        password=os.environ.get('DB_PASS', 'AureoleIT@2026')
+        password=os.environ.get('DB_PASS', 'AureoleIT@2026'),
+        options='-c timezone=Asia/Ho_Chi_Minh'  # hiển thị mọi TIMESTAMPTZ (audit log, ...) theo giờ VN (+7)
     )
 
 def init_db():
@@ -251,7 +252,13 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
         ssh.connect(hostname=cfg['ssh_host'], username=cfg['ssh_user'], password=cfg['ssh_pass'], timeout=10)
-        encoded_cmd = base64.b64encode(command_block.encode('utf-16-le')).decode('utf-8')
+        # Ép PowerShell xuất ra UTF-8 thay vì bảng mã console mặc định (OEM/ANSI) —
+        # đây là nguyên nhân chính khiến tên user tiếng Việt (dấu) bị lỗi font khi đọc về.
+        encoding_prefix = (
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+            "$OutputEncoding = [System.Text.Encoding]::UTF8; "
+        )
+        encoded_cmd = base64.b64encode((encoding_prefix + command_block).encode('utf-16-le')).decode('utf-8')
         # Dùng $LASTEXITCODE và thêm exit code vào cuối stdout để detect lỗi chính xác
         # stderr của PowerShell thường có noise (progress, warning) dù thành công
         full_command = (
@@ -930,6 +937,42 @@ def export_audit_csv():
     return output
 
 # ─────────────────────────────────────────────
+#  Xóa toàn bộ Audit Log
+# ─────────────────────────────────────────────
+@app.route('/api/clear-audit-log', methods=['POST'])
+@domain_required
+@admin_required
+def api_clear_audit_log():
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT COUNT(*) FROM audit_log")
+        total = cur.fetchone()[0]
+        cur.execute("DELETE FROM audit_log")
+        conn.commit()
+        # Ghi lại chính hành động xóa log — để vẫn còn dấu vết ai đã xóa log lúc nào
+        write_log(session['user'], 'CLEAR_AUDIT_LOG', detail=f"Đã xóa {total} dòng log cũ")
+        return jsonify({"status":"success","deleted":total})
+    except Exception as e:
+        conn.rollback(); return jsonify({"status":"error","message":str(e)})
+    finally: cur.close(); conn.close()
+
+# ─────────────────────────────────────────────
+#  Log hành động In/Xuất Biên Bản Bàn Giao Thiết Bị
+# ─────────────────────────────────────────────
+@app.route('/api/log-handover', methods=['POST'])
+@domain_required
+@admin_required
+def api_log_handover():
+    data = request.get_json() or {}
+    username  = data.get('username', '')
+    full_name = data.get('full_name', '')
+    devices   = data.get('devices', [])  # ["PC1 (Laptop Dell)", ...]
+    device_summary = ', '.join(devices) if devices else 'không có thiết bị (chỉ tài khoản)'
+    write_log(session['user'], 'HANDOVER_DEVICE', target=f"{full_name} ({username})",
+              detail=f"In biên bản bàn giao — Thiết bị: {device_summary}")
+    return jsonify({"status":"success"})
+
+# ─────────────────────────────────────────────
 #  API — user licenses
 # ─────────────────────────────────────────────
 @app.route('/api/cache-status')
@@ -1138,7 +1181,10 @@ def api_create_computer():
             )
 
         conn.commit()
-        write_log(session['user'], 'CREATE_COMPUTER', target=data.get('computer_name'), detail=f"id={new_id}")
+        detail_parts = [f"Model: {data.get('model') or '—'}", f"CPU: {data.get('cpu') or '—'}", f"RAM: {data.get('ram') or '—'}"]
+        if assigned_user: detail_parts.append(f"Gán cho: {assigned_user}")
+        write_log(session['user'], 'CREATE_COMPUTER', target=data.get('computer_name'),
+                  detail=f"Tạo máy mới ({', '.join(detail_parts)})")
         return jsonify({"status":"success","id":new_id})
     except Exception as e:
         conn.rollback(); return jsonify({"status":"error","message":str(e)})
@@ -1158,6 +1204,23 @@ def api_update_computer(cid):
             if dup:
                 return jsonify({"status":"error","message":f"Mã tài sản \"{asset_code}\" đã tồn tại (máy: {dup[0]}). Vui lòng nhập mã khác."})
 
+        # Lấy dữ liệu cũ để so sánh, phục vụ ghi log chi tiết những gì đã thay đổi
+        field_labels = {
+            'asset_code':'Mã TS','device_type':'Thiết bị','computer_name':'Tên','location':'Vị trí',
+            'brand':'Hãng','model':'Model','cpu':'CPU','ram':'RAM','ssd':'SSD','hdd':'HDD',
+            'bitlocker':'Bitlocker','status':'Trạng thái','notes':'Ghi chú'
+        }
+        cur.execute(f"SELECT {','.join(field_labels.keys())} FROM computers WHERE id=%s", (cid,))
+        old_row = cur.fetchone()
+        old_values = dict(zip(field_labels.keys(), old_row)) if old_row else {}
+
+        new_values = {
+            'asset_code': asset_code, 'device_type': data.get('device_type',''), 'computer_name': data.get('computer_name',''),
+            'location': data.get('location',''), 'brand': data.get('brand',''), 'model': data.get('model',''),
+            'cpu': data.get('cpu',''), 'ram': data.get('ram',''), 'ssd': data.get('ssd',''), 'hdd': data.get('hdd',''),
+            'bitlocker': data.get('bitlocker',''), 'status': data.get('status','in_use'), 'notes': data.get('notes','')
+        }
+
         cur.execute("""
             UPDATE computers SET asset_code=%s,device_type=%s,computer_name=%s,location=%s,brand=%s,model=%s,
             cpu=%s,ram=%s,ssd=%s,hdd=%s,bitlocker=%s,status=%s,notes=%s,updated_at=NOW()
@@ -1169,7 +1232,10 @@ def api_update_computer(cid):
 
         # Đồng bộ assigned_user vào user_computers — nguồn chân lý duy nhất.
         # Form Edit Computer chỉ cho gán 1 user nên xóa hết liên kết cũ rồi gán lại.
+        old_assigned = None
         if 'assigned_user' in data:
+            cur.execute("SELECT string_agg(sam_account_name, ', ') FROM user_computers WHERE computer_id=%s", (cid,))
+            r = cur.fetchone(); old_assigned = r[0] if r else None
             assigned_user = (data.get('assigned_user') or '').strip()
             cur.execute("DELETE FROM user_computers WHERE computer_id=%s", (cid,))
             if assigned_user:
@@ -1179,7 +1245,21 @@ def api_update_computer(cid):
                 )
 
         conn.commit()
-        write_log(session['user'], 'EDIT_COMPUTER', target=data.get('computer_name'), detail=f"id={cid}")
+
+        # Chỉ liệt kê những trường thực sự thay đổi, cho log dễ đọc
+        changes = []
+        for key, label in field_labels.items():
+            old_v = (old_values.get(key) or '').strip()
+            new_v = (new_values.get(key) or '').strip()
+            if old_v != new_v:
+                changes.append(f"{label}: '{old_v or '—'}' → '{new_v or '—'}'")
+        if 'assigned_user' in data:
+            new_assigned = (data.get('assigned_user') or '').strip()
+            if (old_assigned or '') != new_assigned:
+                changes.append(f"User: '{old_assigned or '—'}' → '{new_assigned or '—'}'")
+
+        detail = "; ".join(changes) if changes else "Không có thay đổi"
+        write_log(session['user'], 'EDIT_COMPUTER', target=data.get('computer_name'), detail=detail)
         return jsonify({"status":"success"})
     except Exception as e:
         conn.rollback(); return jsonify({"status":"error","message":str(e)})
@@ -1362,7 +1442,11 @@ def api_assign_computer():
         cur.execute("INSERT INTO user_computers (sam_account_name,computer_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
                     (data['username'], data['computer_id']))
         conn.commit()
-        write_log(session['user'], 'ASSIGN_COMPUTER', target=data['username'], detail=f"cid={data['computer_id']}")
+        cur.execute("SELECT computer_name, asset_code FROM computers WHERE id=%s", (data['computer_id'],))
+        row = cur.fetchone()
+        device_label = f"{row[0]}" + (f" (Mã: {row[1]})" if row and row[1] else "") if row else f"id={data['computer_id']}"
+        write_log(session['user'], 'ASSIGN_COMPUTER', target=data['username'],
+                  detail=f"Gán thiết bị {device_label} cho user {data['username']}")
         return jsonify({"status":"success"})
     except Exception as e:
         conn.rollback(); return jsonify({"status":"error","message":str(e)})
@@ -1375,10 +1459,14 @@ def api_unassign_computer():
     data = request.get_json()
     conn = get_db_connection(); cur = conn.cursor()
     try:
+        cur.execute("SELECT computer_name, asset_code FROM computers WHERE id=%s", (data['computer_id'],))
+        row = cur.fetchone()
+        device_label = f"{row[0]}" + (f" (Mã: {row[1]})" if row and row[1] else "") if row else f"id={data['computer_id']}"
         cur.execute("DELETE FROM user_computers WHERE sam_account_name=%s AND computer_id=%s",
                     (data['username'], data['computer_id']))
         conn.commit()
-        write_log(session['user'], 'UNASSIGN_COMPUTER', target=data['username'], detail=f"cid={data['computer_id']}")
+        write_log(session['user'], 'UNASSIGN_COMPUTER', target=data['username'],
+                  detail=f"Thu hồi thiết bị {device_label} từ user {data['username']}")
         return jsonify({"status":"success"})
     except Exception as e:
         conn.rollback(); return jsonify({"status":"error","message":str(e)})
