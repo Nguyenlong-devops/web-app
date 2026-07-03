@@ -260,6 +260,17 @@ def deactivate_domain_config():
         conn.close()
 
 # ─────────────────────────────────────────────
+#  Escape giá trị trước khi nhét vào lệnh PowerShell
+# ─────────────────────────────────────────────
+def ps_quote(value) -> str:
+    """Escape 1 giá trị để nhét an toàn vào bên trong cặp nháy đơn '...' của PowerShell.
+    Trong PowerShell, chuỗi trong nháy đơn là literal string thuần túy — chỉ cần nhân đôi
+    dấu ' bên trong là chặn được injection (mọi ký tự khác kể cả $, `, ; đều là ký tự thường,
+    không có ý nghĩa đặc biệt bên trong nháy đơn). LUÔN dùng hàm này khi nội suy input người
+    dùng (username, tên, OU, group, mật khẩu...) vào bên trong cặp '...' của lệnh PowerShell."""
+    return str(value if value is not None else "").replace("'", "''")
+
+# ─────────────────────────────────────────────
 #  SSH / PowerShell — dùng config domain hiện tại
 # ─────────────────────────────────────────────
 def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
@@ -630,8 +641,8 @@ def change_password():
                     conn.unbind()
                     ps_cmd = (
                         f"Import-Module ActiveDirectory; "
-                        f"$sec = ConvertTo-SecureString '{new_password}' -AsPlainText -Force; "
-                        f"Set-ADAccountPassword -Identity '{username}' -NewPassword $sec -Reset $true"
+                        f"$sec = ConvertTo-SecureString '{ps_quote(new_password)}' -AsPlainText -Force; "
+                        f"Set-ADAccountPassword -Identity '{ps_quote(username)}' -NewPassword $sec -Reset $true"
                     )
                     run_powershell_ssh(ps_cmd, cfg)
                     write_log(username, 'CHANGE_PASSWORD', target=username, detail='Password changed via AD')
@@ -716,13 +727,13 @@ def create_user():
 
     ps_cmd = (
         f"Import-Module ActiveDirectory; "
-        f"New-ADUser -SamAccountName '{sam_account_name}' -Name '{full_name}' "
-        f"-AccountPassword (ConvertTo-SecureString '{password}' -AsPlainText -Force) "
-        f"-Path '{ou_dn}' -Enabled $true"
+        f"New-ADUser -SamAccountName '{ps_quote(sam_account_name)}' -Name '{ps_quote(full_name)}' "
+        f"-AccountPassword (ConvertTo-SecureString '{ps_quote(password)}' -AsPlainText -Force) "
+        f"-Path '{ps_quote(ou_dn)}' -Enabled $true"
     )
     for group_id in group_ids:
         if group_id and group_id.strip():
-            ps_cmd += f" ; Add-ADGroupMember -Identity '{group_id}' -Members '{sam_account_name}'"
+            ps_cmd += f" ; Add-ADGroupMember -Identity '{ps_quote(group_id)}' -Members '{ps_quote(sam_account_name)}'"
 
     run_powershell_ssh(ps_cmd, cfg)
     write_log(
@@ -756,12 +767,12 @@ def create_group():
 
     ps_parts = [
         "Import-Module ActiveDirectory",
-        f"New-ADGroup -Name '{group_name}' -SamAccountName '{group_name}' "
-        f"-GroupScope '{group_scope}' -GroupCategory '{group_type}' "
-        f"-Path '{ou_dn}'"
+        f"New-ADGroup -Name '{ps_quote(group_name)}' -SamAccountName '{ps_quote(group_name)}' "
+        f"-GroupScope '{ps_quote(group_scope)}' -GroupCategory '{ps_quote(group_type)}' "
+        f"-Path '{ps_quote(ou_dn)}'"
     ]
     if description:
-        ps_parts[-1] += f" -Description '{description}'"
+        ps_parts[-1] += f" -Description '{ps_quote(description)}'"
 
     out, err, ec = run_powershell_ssh(' ; '.join(ps_parts), cfg, return_stderr=True)
     write_log(session['user'], 'CREATE_GROUP', target=group_name,
@@ -785,15 +796,15 @@ def edit_user_ad():
     details      = []
 
     # Identity dùng xuyên suốt — cập nhật sau mỗi bước đổi tên/OU
-    current_identity = username
+    current_identity = ps_quote(username)
 
     # 1. Đổi tên hiển thị (AD Rename — CN + DisplayName)
     if display_name:
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; "
             f"$u = Get-ADUser -Identity '{current_identity}' -Properties DistinguishedName; "
-            f"Rename-ADObject -Identity $u.DistinguishedName -NewName '{display_name}'; "
-            f"Set-ADUser -Identity '{current_identity}' -DisplayName '{display_name}' -GivenName '{display_name}'",
+            f"Rename-ADObject -Identity $u.DistinguishedName -NewName '{ps_quote(display_name)}'; "
+            f"Set-ADUser -Identity '{current_identity}' -DisplayName '{ps_quote(display_name)}' -GivenName '{ps_quote(display_name)}'",
             cfg, return_stderr=True)
         details.append(f"rename_cn={display_name} exit={ec}")
         # SamAccountName không đổi khi Rename-ADObject, current_identity vẫn dùng được
@@ -802,7 +813,7 @@ def edit_user_ad():
     if password:
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; Set-ADAccountPassword -Identity '{current_identity}' "
-            f"-NewPassword (ConvertTo-SecureString '{password}' -AsPlainText -Force) -Reset $true",
+            f"-NewPassword (ConvertTo-SecureString '{ps_quote(password)}' -AsPlainText -Force) -Reset $true",
             cfg, return_stderr=True)
         details.append(f"password_reset exit={ec}")
 
@@ -823,7 +834,7 @@ def edit_user_ad():
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; "
             f"$u = Get-ADUser -Identity '{current_identity}' -Properties DistinguishedName; "
-            f"Move-ADObject -Identity $u.DistinguishedName -TargetPath '{new_ou}'",
+            f"Move-ADObject -Identity $u.DistinguishedName -TargetPath '{ps_quote(new_ou)}'",
             cfg, return_stderr=True)
         details.append(f"move_ou={new_ou} exit={ec}")
 
@@ -831,8 +842,8 @@ def edit_user_ad():
     if new_sam and new_sam != username:
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; "
-            f"Set-ADUser -Identity '{current_identity}' -SamAccountName '{new_sam}' "
-            f"-UserPrincipalName '{new_sam}{cfg['domain_suffix']}'",
+            f"Set-ADUser -Identity '{current_identity}' -SamAccountName '{ps_quote(new_sam)}' "
+            f"-UserPrincipalName '{ps_quote(new_sam)}{cfg['domain_suffix']}'",
             cfg, return_stderr=True)
         details.append(f"sam_renamed={username}->{new_sam} exit={ec}")
 
@@ -1133,7 +1144,7 @@ def export_users_csv():
 def api_group_members(group_name):
     cfg    = get_active_domain_config()
     ps_cmd = (
-        f"Get-ADGroupMember -Identity '{group_name}' | "
+        f"Get-ADGroupMember -Identity '{ps_quote(group_name)}' | "
         f"Select-Object SamAccountName, Name | "
         f"Sort-Object Name | ConvertTo-Json -Compress"
     )
@@ -1249,13 +1260,9 @@ def api_move_domain_computer():
     if not dn or not new_ou:
         return jsonify({"status": "error", "message": "Thiếu Distinguished Name hoặc OU đích"})
 
-    # Escape dấu nháy đơn để tránh phá vỡ chuỗi lệnh PowerShell (double-quote escaping)
-    dn_esc     = dn.replace("'", "''")
-    new_ou_esc = new_ou.replace("'", "''")
-
     ps_cmd = (
         f"Import-Module ActiveDirectory; "
-        f"Move-ADObject -Identity '{dn_esc}' -TargetPath '{new_ou_esc}'"
+        f"Move-ADObject -Identity '{ps_quote(dn)}' -TargetPath '{ps_quote(new_ou)}'"
     )
     out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
     if ec != 0:
@@ -1468,8 +1475,7 @@ def api_delete_domain_computer():
         return jsonify({"status":"error","message":"Thiếu Distinguished Name của máy cần xóa"})
 
     cfg = get_active_domain_config()
-    dn_escaped = dn.replace("'", "''")  # escape dấu nháy đơn cho PowerShell
-    ps = f"Remove-ADComputer -Identity '{dn_escaped}' -Confirm:$false"
+    ps = f"Remove-ADComputer -Identity '{ps_quote(dn)}' -Confirm:$false"
     out, err, ec = run_powershell_ssh(ps, cfg, return_stderr=True)
 
     if ec == 0:
@@ -1684,7 +1690,7 @@ def api_remove_user_group():
     data     = request.get_json()
     username = data.get('username')
     group    = data.get('group')
-    ps_cmd = f"Import-Module ActiveDirectory; Remove-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:0"
+    ps_cmd = f"Import-Module ActiveDirectory; Remove-ADGroupMember -Identity '{ps_quote(group)}' -Members '{ps_quote(username)}' -Confirm:0"
     out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
     write_log(session['user'], 'REMOVE_FROM_GROUP', target=username, detail=f"group={group} exit={exitcode}")
     return jsonify({"status": "success"})
@@ -1725,7 +1731,7 @@ def api_add_user_group():
         return jsonify({"status": "error", "message": "Vui lòng chọn group."})
 
     group = group.strip()
-    ps_cmd = f"Import-Module ActiveDirectory; Add-ADGroupMember -Identity '{group}' -Members '{username}' -Confirm:0"
+    ps_cmd = f"Import-Module ActiveDirectory; Add-ADGroupMember -Identity '{ps_quote(group)}' -Members '{ps_quote(username)}' -Confirm:0"
     out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
     write_log(session['user'], 'ADD_TO_GROUP', target=username, detail=f"group={group} exit={exitcode}")
     return jsonify({"status": "success", "group": group})
