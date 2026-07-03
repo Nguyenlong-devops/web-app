@@ -404,20 +404,18 @@
             </div>
         </div>
 
-        <!-- ADMIN ACTION PANELS -->
+        <!-- ADMIN ACTION PANELS (dạng modal popup, giống Thêm Máy Tính) -->
         {% if session.get('is_admin') %}
 
-        <!-- CREATE USER PANEL -->
-        <div id="create-user-panel" class="content-card action-panel hidden">
-            <div class="card-header">
-                <div class="card-title-block">
-                    <div class="card-title">Tạo User Active Directory</div>
-                    <div class="card-subtitle">Tạo tài khoản mới và gán Group ngay khi khởi tạo</div>
+        <!-- CREATE USER MODAL -->
+        <div id="create-user-panel" class="modal">
+            <div class="modal-content" style="max-width:640px;">
+                <div class="modal-header">
+                    <div class="modal-title">Tạo User Active Directory</div>
+                    <button class="close-btn" onclick="closeAllPanels()">✕</button>
                 </div>
-                <button class="btn btn-secondary btn-sm" onclick="closeAllPanels()">✕ Đóng</button>
-            </div>
-            <div class="card-body">
-                <form action="/create-user" method="POST" onsubmit="showLoading()">
+                <div class="modal-body">
+                <form id="createUserForm" action="/create-user" method="POST" onsubmit="showLoading()">
                     <div class="form-grid">
                         <div class="form-group">
                             <label>SamAccountName</label>
@@ -437,33 +435,37 @@
                         </div>
                     </div>
                     <div class="form-group" style="margin-top:12px;">
-                        <label>Gán Group (Ctrl+Click chọn nhiều)</label>
-                        <select name="group_ids[]" multiple>
+                        <label>Gán Group (tích chọn 1 hoặc nhiều)</label>
+                        <div class="checkbox-list" style="border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);max-height:220px;overflow-y:auto;padding:8px 12px;">
                             {% for g in ad_groups %}
-                            <option value="{{ g.Name }}">{{ g.Name }}</option>
+                            <label style="display:flex;align-items:center;gap:8px;padding:6px 2px;font-size:13px;font-weight:400;cursor:pointer;">
+                                <input type="checkbox" name="group_ids[]" value="{{ g.Name }}" style="width:15px;height:15px;cursor:pointer;flex-shrink:0;">
+                                <span>{{ g.Name }}</span>
+                            </label>
                             {% endfor %}
-                        </select>
-                    </div>
-                    <div class="form-actions">
-                        <button class="btn btn-primary" type="submit">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                            Tạo User
-                        </button>
+                        </div>
                     </div>
                 </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeAllPanels()">Hủy</button>
+                    <button class="btn btn-primary" type="submit" form="createUserForm">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Tạo User
+                    </button>
+                </div>
             </div>
         </div>
 
         <!-- LICENSE INVENTORY PANEL -->
-        <div id="license-panel" class="content-card action-panel hidden">
-            <div class="card-header">
-                <div class="card-title-block">
-                    <div class="card-title" id="license-form-title">Nhập Kho License</div>
-                    <div class="card-subtitle">Thêm hoặc chỉnh sửa license inventory</div>
+        <!-- LICENSE INVENTORY MODAL -->
+        <div id="license-panel" class="modal">
+            <div class="modal-content" style="max-width:520px;">
+                <div class="modal-header">
+                    <div class="modal-title" id="license-form-title">Nhập Kho License</div>
+                    <button class="close-btn" onclick="closeAllPanels()">✕</button>
                 </div>
-                <button class="btn btn-secondary btn-sm" onclick="closeAllPanels()">✕ Đóng</button>
-            </div>
-            <div class="card-body">
+                <div class="modal-body">
                 <form id="licenseInventoryForm" action="/save-software-inventory" method="POST" onsubmit="return confirmLicenseSave(event)">
                     <input type="hidden" id="form_row_id" name="row_id">
                     <div class="form-grid">
@@ -484,30 +486,28 @@
                         <label>Mật Khẩu Administrator <span style="color:var(--danger);">*</span></label>
                         <input type="password" id="form_admin_pass" name="admin_pass" placeholder="Nhập mật khẩu để xác nhận" required>
                     </div>
-                    <div class="form-actions">
-                        <button id="submit-inventory-btn" type="submit" class="btn btn-primary">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
-                            Lưu License
-                        </button>
-                        <button type="button" id="cancel-edit-btn" class="btn btn-secondary hidden" onclick="resetLicenseForm()">
-                            Hủy Edit
-                        </button>
-                    </div>
                 </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="cancel-edit-btn" class="btn btn-secondary hidden" onclick="resetLicenseForm()">Hủy Edit</button>
+                    <button class="btn btn-secondary" onclick="closeAllPanels()">Hủy</button>
+                    <button id="submit-inventory-btn" type="submit" form="licenseInventoryForm" class="btn btn-primary">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+                        Lưu License
+                    </button>
+                </div>
             </div>
         </div>
 
-        <!-- ASSIGN LICENSE PANEL -->
-        <div id="assign-license-panel" class="content-card action-panel hidden">
-            <div class="card-header">
-                <div class="card-title-block">
-                    <div class="card-title">Cấp License Cho User</div>
-                    <div class="card-subtitle">Gán license từ kho trực tiếp cho người dùng</div>
+        <!-- ASSIGN LICENSE MODAL -->
+        <div id="assign-license-panel" class="modal">
+            <div class="modal-content" style="max-width:520px;">
+                <div class="modal-header">
+                    <div class="modal-title">Cấp License Cho User</div>
+                    <button class="close-btn" onclick="closeAllPanels()">✕</button>
                 </div>
-                <button class="btn btn-secondary btn-sm" onclick="closeAllPanels()">✕ Đóng</button>
-            </div>
-            <div class="card-body">
-                <form action="/assign-software-direct" method="POST" onsubmit="showLoading()">
+                <div class="modal-body">
+                <form id="assignLicenseForm" action="/assign-software-direct" method="POST" onsubmit="showLoading()">
                     <div class="form-grid">
                         <div class="form-group">
                             <label>User AD</label>
@@ -530,13 +530,15 @@
                             <input type="number" name="quantity" min="1" value="1" required>
                         </div>
                     </div>
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-primary">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
-                            Cấp License
-                        </button>
-                    </div>
                 </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeAllPanels()">Hủy</button>
+                    <button type="submit" form="assignLicenseForm" class="btn btn-primary">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                        Cấp License
+                    </button>
+                </div>
             </div>
         </div>
         {% endif %}
@@ -1269,6 +1271,9 @@ html[data-theme="dark"] #cmp-page-subtitle { color:#c8c8c8 !important; }
     padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; line-height: 1.4;
 }
 
+/* Danh sách checkbox gán Group khi tạo user */
+.checkbox-list label:hover { background: var(--bg-secondary); border-radius: 4px; }
+
 /* ─────── In biên bản bàn giao thiết bị ─────── */
 #handoverPrintArea { display:none; }
 @media print {
@@ -1395,17 +1400,15 @@ function openPanel(id, navBtn) {
         });
         navBtn.classList.add('active');
     }
-    closeAllPanels();
     const el = document.getElementById(id);
     if (!el) return;
-    el.classList.remove('hidden');
-    setTimeout(() => el.scrollIntoView({ behavior:'smooth', block:'start' }), 80);
+    el.classList.add('show');
 }
 
 function closeAllPanels() {
     ['create-user-panel','license-panel','assign-license-panel'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.classList.add('hidden');
+        if (el) el.classList.remove('show');
     });
 }
 
@@ -2632,7 +2635,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Modal close on backdrop click
-    ['passwordModal','revokeModal','userEditModal','createGroupModal','groupMembersModal','computerModal'].forEach(id => {
+    ['passwordModal','revokeModal','userEditModal','createGroupModal','groupMembersModal','computerModal',
+     'create-user-panel','license-panel','assign-license-panel'].forEach(id => {
         const m = document.getElementById(id);
         if (m) m.addEventListener('click', e => { if (e.target===m) m.classList.remove('show'); });
     });
