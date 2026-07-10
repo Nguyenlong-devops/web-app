@@ -3,3 +3,5 @@ psycopg2-binary
 paramiko
 openpyxl
 ldap3
+requests
+cryptography

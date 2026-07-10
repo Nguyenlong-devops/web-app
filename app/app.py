@@ -4,13 +4,62 @@ import base64
 import csv
 import io
 import time
+import secrets
 import psycopg2
 import paramiko
+from datetime import timedelta
 from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response, session
 from ldap3 import Server, Connection, ALL
 
 app = Flask(__name__)
-app.secret_key = "pv_local_secret_key_automation"
+
+# ── Secret key: PHẢI lấy từ biến môi trường, không hard-code trong source ──
+# (session Flask mặc định ký ở client — ai có key này có thể tự tạo cookie is_admin=True
+# cho bất kỳ username nào, bỏ qua hoàn toàn xác thực AD). Nếu chưa set biến môi trường
+# FLASK_SECRET_KEY, dùng tạm 1 key ngẫu nhiên sinh ra khi khởi động (session sẽ mất khi
+# restart app — nên set FLASK_SECRET_KEY cố định trong production qua .env/docker secret).
+app.secret_key = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
+if not os.environ.get('FLASK_SECRET_KEY'):
+    print("[WARNING] FLASK_SECRET_KEY chưa được set qua biến môi trường — đang dùng key "
+          "ngẫu nhiên tạm thời, mọi session sẽ bị đăng xuất khi restart app. Nên set "
+          "FLASK_SECRET_KEY cố định (vd: python -c \"import secrets; print(secrets.token_hex(32))\").")
+
+# ── Tự động đăng xuất sau 5 phút không thao tác (đề phòng quên logout / tắt web) ──
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=5)
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True  # mỗi request mới sẽ "làm mới" thời hạn 5 phút
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'       # giảm rủi ro CSRF cho cookie session
+# Nếu web đã chạy sau HTTPS, nên bật thêm dòng dưới để trình duyệt chỉ gửi cookie qua kết nối mã hoá:
+# app.config['SESSION_COOKIE_SECURE'] = True
+
+@app.before_request
+def _enforce_idle_session_timeout():
+    session.permanent = True  # bắt buộc áp dụng PERMANENT_SESSION_LIFETIME ở trên cho mọi session
+
+# ── CSRF protection: mọi request POST/PUT/PATCH/DELETE của user đã đăng nhập phải kèm đúng
+# csrf_token của session đó (qua header X-CSRF-Token — tự động gắn bởi JS ở index.html — hoặc
+# qua field 'csrf_token' cho 1 số form submit thẳng không qua fetch). Nếu chưa đăng nhập thì bỏ
+# qua bước này, để các decorator login_required/admin_required của từng route tự xử lý (tránh
+# lộ thông tin CSRF token không cần thiết trên các request công khai).
+_CSRF_EXEMPT_PATHS = {'/login', '/connect-domain'}
+
+@app.before_request
+def _csrf_protect():
+    if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        return
+    if request.path in _CSRF_EXEMPT_PATHS:
+        return
+    session_token = session.get('csrf_token')
+    if not session_token:
+        return  # chưa đăng nhập -> để login_required/admin_required của route xử lý
+    sent_token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
+    if not sent_token and request.is_json:
+        body = request.get_json(silent=True) or {}
+        sent_token = body.get('csrf_token')
+    if not sent_token or sent_token != session_token:
+        return jsonify({
+            "status": "error",
+            "message": "Phiên làm việc đã hết hạn hoặc không hợp lệ (CSRF token sai). Vui lòng tải lại trang rồi thử lại."
+        }), 403
 
 app.config['JSON_AS_ASCII'] = False
 @app.before_request
@@ -244,6 +293,73 @@ def save_domain_config(cfg: dict):
         cur.close()
         conn.close()
 
+def get_upn_suffixes(cfg):
+    """Lấy danh sách UPN suffix khả dụng trong AD forest — vd domain mặc định @pv.local cộng
+    thêm các suffix phụ như @aureole.local được cấu hình qua 'Active Directory Domains and
+    Trusts'. Đây chính là danh sách hiện trong dropdown 'User logon name' ở tab Account của
+    ADUC, dùng để chọn domain đăng nhập khi tạo/sửa user."""
+    ps_cmd = (
+        "Import-Module ActiveDirectory; "
+        "$primary = (Get-ADDomain).DNSRoot; "
+        "$alt = (Get-ADForest).UPNSuffixes; "
+        "$all = @($primary) + @($alt); "
+        "$all | Where-Object { $_ } | Select-Object -Unique | ForEach-Object { Write-Output $_ }"
+    )
+    out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    if ec != 0:
+        return []
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+def get_domain_config_by_id(domain_id):
+    """Lấy 1 cấu hình domain cụ thể theo id — dùng khi admin chọn domain khác với domain
+    đang active để thực hiện thao tác (vd tạo user ở domain phụ như Azure/O365 .vn
+    trong khi domain chính đang kết nối là .local)."""
+    if not domain_id:
+        return None
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT id, ldap_host, domain_suffix, base_dn, admin_group_dn, ssh_host, ssh_user, ssh_pass
+            FROM domain_config WHERE id = %s
+        """, (domain_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "ldap_host": row[1], "domain_suffix": row[2],
+            "base_dn": row[3], "admin_group_dn": row[4],
+            "ssh_host": row[5], "ssh_user": row[6], "ssh_pass": row[7],
+        }
+    except Exception as e:
+        print(f"get_domain_config_by_id error: {e}")
+        return None
+    finally:
+        cur.close()
+        conn.close()
+
+def list_domain_configs():
+    """Trả về danh sách các domain từng được kết nối (mỗi domain_suffix chỉ lấy bản ghi mới
+    nhất — vì mỗi lần kết nối lại cùng 1 domain sẽ tạo thêm 1 dòng lịch sử mới).
+    Dùng để admin chọn domain khi tạo tài khoản, hỗ trợ trường hợp có nhiều domain
+    (vd domain nội bộ pv.local và domain Azure/O365 phongvu.vn)."""
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT DISTINCT ON (domain_suffix) id, ldap_host, domain_suffix, is_active
+            FROM domain_config
+            ORDER BY domain_suffix, id DESC
+        """)
+        rows = cur.fetchall()
+        return [{"id": r[0], "ldap_host": r[1], "domain_suffix": r[2], "is_active": bool(r[3])} for r in rows]
+    except Exception as e:
+        print(f"list_domain_configs error: {e}")
+        return []
+    finally:
+        cur.close()
+        conn.close()
+
 def deactivate_domain_config():
     conn = get_db_connection()
     cur  = conn.cursor()
@@ -262,6 +378,23 @@ def deactivate_domain_config():
 # ─────────────────────────────────────────────
 #  Escape giá trị trước khi nhét vào lệnh PowerShell
 # ─────────────────────────────────────────────
+import re as _re
+def clean_ps_error(raw_err: str) -> str:
+    """PowerShell qua SSH (không có console thật) đôi khi serialize progress/warning/error
+    thành định dạng CLIXML (bắt đầu bằng '#< CLIXML') thay vì text thường, gây khó đọc.
+    Hàm này ưu tiên lấy đúng nội dung luồng Error/Warning, bỏ hết rác progress/XML."""
+    if not raw_err or '#< CLIXML' not in raw_err:
+        return raw_err
+    # Ưu tiên nội dung nằm trong <S S="Error">...</S> hoặc <S S="Warning">...</S> (thông điệp thật)
+    pieces = _re.findall(r'<S S="(?:Error|Warning)"[^>]*>(.*?)</S>', raw_err, flags=_re.DOTALL)
+    if not pieces:
+        # Không có Error/Warning riêng -> lấy tất cả <S> (có thể lẫn vài dòng progress)
+        pieces = _re.findall(r'<S[^>]*>(.*?)</S>', raw_err, flags=_re.DOTALL)
+    text = ' '.join(pieces)
+    text = _re.sub(r'_x000([0-9A-Da-d])_', lambda m: {'D':'\r','A':'\n','9':'\t'}.get(m.group(1).upper(), ''), text)
+    text = _re.sub(r'<[^>]+>', '', text).strip()
+    return text or raw_err  # nếu bóc không ra gì thì trả nguyên bản để không mất thông tin
+
 def ps_quote(value) -> str:
     """Escape 1 giá trị để nhét an toàn vào bên trong cặp nháy đơn '...' của PowerShell.
     Trong PowerShell, chuỗi trong nháy đơn là literal string thuần túy — chỉ cần nhân đôi
@@ -285,9 +418,13 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
         ssh.connect(hostname=cfg['ssh_host'], username=cfg['ssh_user'], password=cfg['ssh_pass'], timeout=10)
         # Ép PowerShell xuất ra UTF-8 thay vì bảng mã console mặc định (OEM/ANSI) —
         # đây là nguyên nhân chính khiến tên user tiếng Việt (dấu) bị lỗi font khi đọc về.
+        # $ProgressPreference = SilentlyContinue: chặn PowerShell serialize thông báo tiến trình
+        # (vd "Loading Active Directory module...") thành CLIXML lẫn vào stderr — đây là nguyên
+        # nhân khiến lỗi hiển thị cho người dùng bị rác đầy "#< CLIXML ..." khó đọc.
         encoding_prefix = (
             "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
             "$OutputEncoding = [System.Text.Encoding]::UTF8; "
+            "$ProgressPreference = 'SilentlyContinue'; "
         )
         encoded_cmd = base64.b64encode((encoding_prefix + command_block).encode('utf-16-le')).decode('utf-8')
         # Dùng $LASTEXITCODE và thêm exit code vào cuối stdout để detect lỗi chính xác
@@ -299,6 +436,7 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
         out      = stdout.read().decode('utf-8', errors='ignore')
         err      = stderr.read().decode('utf-8', errors='ignore')
         exitcode = stdout.channel.recv_exit_status()  # 0 = success
+        err      = clean_ps_error(err)  # dọn CLIXML nếu vẫn còn sót (vd warning nghiêm trọng)
 
         # Nếu lệnh có thay đổi user/group AD (tạo/xóa/sửa/enable/disable/thêm-xóa thành viên),
         # xoá cache danh sách AD để lần load Dashboard kế tiếp lấy dữ liệu mới nhất ngay,
@@ -462,6 +600,15 @@ def connect_domain():
     error   = None
     cfg     = get_active_domain_config()
 
+    # Trước đây route này KHÔNG yêu cầu đăng nhập — bất kỳ ai (kể cả chưa xác thực) cũng có
+    # thể POST lên đây để ghi đè domain đang active thành 1 LDAP server giả do họ dựng lên.
+    # Hậu quả: mọi nhân viên đăng nhập vào tool sau đó sẽ vô tình gửi username/password AD
+    # thật của mình sang server giả đó (vì /login luôn bind vào domain đang active).
+    # Chỉ cho phép bỏ qua đăng nhập khi CHƯA từng kết nối domain nào (lần setup đầu tiên) —
+    # một khi đã có domain, bắt buộc phải là admin đã đăng nhập mới được đổi sang domain khác.
+    if cfg and not (session.get('user') and session.get('is_admin')):
+        return redirect(url_for('login'))
+
     if request.method == 'POST':
         ldap_host = request.form.get('ldap_host', '').strip()
         admin_user = request.form.get('admin_user', '').strip()
@@ -530,8 +677,11 @@ def connect_domain():
 
 
 @app.route('/disconnect-domain', methods=['POST'])
+@admin_required
 def disconnect_domain():
-    """Thoát khỏi domain hiện tại — xoá cấu hình active và session."""
+    """Thoát khỏi domain hiện tại — xoá cấu hình active và session.
+    Yêu cầu admin đã đăng nhập — trước đây route này không có xác thực, ai cũng có
+    thể gọi để ngắt domain của cả công ty (DoS) chỉ bằng 1 POST request trần."""
     cfg = get_active_domain_config()
     actor = session.get('user', 'system')
     if deactivate_domain_config():
@@ -586,6 +736,7 @@ def login():
                 session['user']         = username
                 session['display_name'] = display_name
                 session['is_admin']     = is_admin
+                session['csrf_token']   = secrets.token_hex(16)  # dùng để chống CSRF cho các request POST sau khi đăng nhập
                 write_log(username, 'LOGIN', detail=f"is_admin={is_admin}, domain={cfg['ldap_host']}")
 
                 # Warm AD cache ngầm sau khi login — user sẽ thấy dashboard nhanh hơn
@@ -642,12 +793,16 @@ def change_password():
                     ps_cmd = (
                         f"Import-Module ActiveDirectory; "
                         f"$sec = ConvertTo-SecureString '{ps_quote(new_password)}' -AsPlainText -Force; "
-                        f"Set-ADAccountPassword -Identity '{ps_quote(username)}' -NewPassword $sec -Reset $true"
+                        f"Set-ADAccountPassword -Identity '{ps_quote(username)}' -NewPassword $sec -Reset"
                     )
-                    run_powershell_ssh(ps_cmd, cfg)
-                    write_log(username, 'CHANGE_PASSWORD', target=username, detail='Password changed via AD')
-                    message = "Đổi mật khẩu Windows AD thành công!"
-                    status  = "success"
+                    out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+                    if ec == 0:
+                        write_log(username, 'CHANGE_PASSWORD', target=username, detail='Password changed via AD')
+                        message = "Đổi mật khẩu Windows AD thành công!"
+                        status  = "success"
+                    else:
+                        message = f"Đổi mật khẩu thất bại: {err.strip() or 'lỗi không rõ'}"
+                        status  = "danger"
             except Exception as e:
                 message = f"Lỗi hệ thống: {str(e)}"
                 status  = "danger"
@@ -711,37 +866,62 @@ def index():
 # ─────────────────────────────────────────────
 #  Tạo user AD
 # ─────────────────────────────────────────────
+#  Street mặc định cho MỌI user được tạo qua portal này (theo yêu cầu công ty)
+DEFAULT_USER_STREET = "AIT"
+
 @app.route('/create-user', methods=['POST'])
 @domain_required
 @admin_required
 def create_user():
-    cfg = get_active_domain_config()
+    domain_id = request.form.get('domain_id', '').strip()
+    # Nếu admin có chọn domain cụ thể (hỗ trợ nhiều domain, vd .local nội bộ và .vn Azure/O365)
+    # thì dùng đúng domain đó; nếu không chọn thì fallback về domain đang active như trước.
+    cfg = get_domain_config_by_id(domain_id) if domain_id else get_active_domain_config()
+    if not cfg:
+        return jsonify({"status": "error", "message": "Domain đã chọn không hợp lệ hoặc không còn tồn tại. Vui lòng chọn lại domain."})
+
     sam_account_name = request.form.get('sam_account_name')
     full_name        = request.form.get('full_name')
     password         = request.form.get('password')
     ou_dn            = request.form.get('ou_dn')
+    upn_suffix       = request.form.get('upn_suffix', '').strip()
     group_ids        = request.form.getlist('group_ids[]')
+
+    if not sam_account_name or not sam_account_name.strip():
+        return jsonify({"status": "error", "message": "Vui lòng nhập SamAccountName."})
+    if not ou_dn or not ou_dn.strip():
+        return jsonify({"status": "error", "message": "Vui lòng chọn OU."})
 
     if not password or not password.strip():
         password = "AureoleIT@2026!@#"
+
+    # Domain đăng nhập (UPN) — nếu admin chọn cụ thể (vd @aureole.local) thì dùng đúng suffix đó,
+    # nếu không thì mặc định theo domain suffix của domain đang dùng.
+    if upn_suffix:
+        upn = f"{sam_account_name}@{upn_suffix.lstrip('@')}"
+    else:
+        upn = f"{sam_account_name}{cfg['domain_suffix']}"
 
     ps_cmd = (
         f"Import-Module ActiveDirectory; "
         f"New-ADUser -SamAccountName '{ps_quote(sam_account_name)}' -Name '{ps_quote(full_name)}' "
         f"-AccountPassword (ConvertTo-SecureString '{ps_quote(password)}' -AsPlainText -Force) "
-        f"-Path '{ps_quote(ou_dn)}' -Enabled $true"
+        f"-Path '{ps_quote(ou_dn)}' -UserPrincipalName '{ps_quote(upn)}' "
+        f"-StreetAddress '{ps_quote(DEFAULT_USER_STREET)}' -Enabled $true"
     )
     for group_id in group_ids:
         if group_id and group_id.strip():
             ps_cmd += f" ; Add-ADGroupMember -Identity '{ps_quote(group_id)}' -Members '{ps_quote(sam_account_name)}'"
 
-    run_powershell_ssh(ps_cmd, cfg)
+    out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
     write_log(
         session['user'], 'CREATE_USER',
         target=sam_account_name,
-        detail=f"FullName={full_name}, OU={ou_dn}, Groups={','.join(group_ids)}"
+        detail=f"FullName={full_name}, OU={ou_dn}, Groups={','.join(group_ids)}, Domain={cfg.get('domain_suffix')}, exit={ec}"
     )
-    return redirect(url_for('index'))
+    if ec != 0:
+        return jsonify({"status": "error", "message": err.strip() or "Tạo user thất bại (không rõ lý do)."})
+    return jsonify({"status": "success", "username": sam_account_name})
 
 # ─────────────────────────────────────────────
 #  Tạo Group AD
@@ -758,7 +938,10 @@ def create_group():
     description = request.form.get('description', '').strip()
 
     if not group_name:
-        return redirect(url_for('index'))
+        return jsonify({"status": "error", "message": "Vui lòng nhập tên Group."})
+
+    if not cfg:
+        return jsonify({"status": "error", "message": "Chưa kết nối domain."})
 
     # Nếu không chọn OU, dùng CN=Users
     if not ou_dn:
@@ -777,7 +960,11 @@ def create_group():
     out, err, ec = run_powershell_ssh(' ; '.join(ps_parts), cfg, return_stderr=True)
     write_log(session['user'], 'CREATE_GROUP', target=group_name,
               detail=f"scope={group_scope}, type={group_type}, ou={ou_dn}, exit={ec}")
-    return redirect(url_for('index'))
+    # Trước đây lỗi thật từ AD (vd trùng tên, sai OU, thiếu quyền...) bị nuốt âm thầm —
+    # trang vẫn redirect như thành công dù group KHÔNG được tạo. Giờ trả lỗi thật cho frontend.
+    if ec != 0:
+        return jsonify({"status": "error", "message": err.strip() or "Tạo group thất bại (không rõ lý do)."})
+    return jsonify({"status": "success", "group": group_name})
 
 # ─────────────────────────────────────────────
 #  Edit user AD
@@ -793,7 +980,9 @@ def edit_user_ad():
     password     = request.form.get('edit_password', '').strip()
     status       = request.form.get('edit_status', 'true')
     new_ou       = request.form.get('edit_ou_dn', '').strip()
+    upn_suffix   = request.form.get('edit_upn_suffix', '').strip()
     details      = []
+    errors       = []  # lỗi thực tế trả về cho frontend, KHÔNG âm thầm nuốt như trước
 
     # Identity dùng xuyên suốt — cập nhật sau mỗi bước đổi tên/OU
     current_identity = ps_quote(username)
@@ -807,15 +996,19 @@ def edit_user_ad():
             f"Set-ADUser -Identity '{current_identity}' -DisplayName '{ps_quote(display_name)}' -GivenName '{ps_quote(display_name)}'",
             cfg, return_stderr=True)
         details.append(f"rename_cn={display_name} exit={ec}")
+        if ec != 0: errors.append(f"Đổi tên hiển thị thất bại: {err.strip() or 'lỗi không rõ'}")
         # SamAccountName không đổi khi Rename-ADObject, current_identity vẫn dùng được
 
     # 2. Đổi mật khẩu
     if password:
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; Set-ADAccountPassword -Identity '{current_identity}' "
-            f"-NewPassword (ConvertTo-SecureString '{ps_quote(password)}' -AsPlainText -Force) -Reset $true",
+            f"-NewPassword (ConvertTo-SecureString '{ps_quote(password)}' -AsPlainText -Force) -Reset",
             cfg, return_stderr=True)
         details.append(f"password_reset exit={ec}")
+        if ec != 0: errors.append(f"Đổi mật khẩu thất bại: {err.strip() or 'lỗi không rõ'} "
+                                   f"(thường do mật khẩu không đủ độ phức tạp theo chính sách domain — "
+                                   f"cần chữ hoa, chữ thường, số, ký tự đặc biệt, tối thiểu ~8 ký tự)")
 
     # 3. Enable/Disable
     if status == "true":
@@ -823,11 +1016,13 @@ def edit_user_ad():
             f"Import-Module ActiveDirectory; Enable-ADAccount -Identity '{current_identity}'",
             cfg, return_stderr=True)
         details.append(f"enabled=true exit={ec}")
+        if ec != 0: errors.append(f"Enable account thất bại: {err.strip() or 'lỗi không rõ'}")
     else:
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; Disable-ADAccount -Identity '{current_identity}'",
             cfg, return_stderr=True)
         details.append(f"enabled=false exit={ec}")
+        if ec != 0: errors.append(f"Disable account thất bại: {err.strip() or 'lỗi không rõ'}")
 
     # 4. Di chuyển OU
     if new_ou:
@@ -837,18 +1032,36 @@ def edit_user_ad():
             f"Move-ADObject -Identity $u.DistinguishedName -TargetPath '{ps_quote(new_ou)}'",
             cfg, return_stderr=True)
         details.append(f"move_ou={new_ou} exit={ec}")
+        if ec != 0: errors.append(f"Di chuyển OU thất bại: {err.strip() or 'lỗi không rõ'}")
 
-    # 5. Đổi SamAccountName (username đăng nhập) — làm cuối cùng
-    if new_sam and new_sam != username:
+    # 5. Đổi SamAccountName (username đăng nhập) và/hoặc domain đăng nhập (UPN suffix) —
+    #    hai việc này độc lập nhau: có thể chỉ đổi UPN (vd @pv.local -> @aureole.local) mà
+    #    không cần đổi SamAccountName, giống thao tác ở tab Account trong ADUC.
+    sam_changed = bool(new_sam and new_sam != username)
+    if sam_changed or upn_suffix:
+        final_sam = new_sam if sam_changed else username
+        if upn_suffix:
+            upn = f"{final_sam}@{upn_suffix.lstrip('@')}"
+        else:
+            upn = f"{final_sam}{cfg['domain_suffix']}"
+
+        set_args = []
+        if sam_changed:
+            set_args.append(f"-SamAccountName '{ps_quote(final_sam)}'")
+        set_args.append(f"-UserPrincipalName '{ps_quote(upn)}'")
+
         out, err, ec = run_powershell_ssh(
             f"Import-Module ActiveDirectory; "
-            f"Set-ADUser -Identity '{current_identity}' -SamAccountName '{ps_quote(new_sam)}' "
-            f"-UserPrincipalName '{ps_quote(new_sam)}{cfg['domain_suffix']}'",
+            f"Set-ADUser -Identity '{current_identity}' {' '.join(set_args)}",
             cfg, return_stderr=True)
-        details.append(f"sam_renamed={username}->{new_sam} exit={ec}")
+        details.append(f"sam={username}->{final_sam}, upn={upn} exit={ec}")
+        if ec != 0: errors.append(f"Đổi username/domain đăng nhập thất bại: {err.strip() or 'lỗi không rõ'}")
 
     write_log(session['user'], 'EDIT_USER', target=username, detail='; '.join(details))
-    return redirect(url_for('index'))
+
+    if errors:
+        return jsonify({"status": "error", "message": " | ".join(errors)})
+    return jsonify({"status": "success"})
 
 # ─────────────────────────────────────────────
 #  License inventory
@@ -1161,11 +1374,30 @@ def api_group_members(group_name):
 # ─────────────────────────────────────────────
 #  API — get AD groups (custom only)
 # ─────────────────────────────────────────────
+@app.route('/api/upn-suffixes')
+@domain_required
+@login_required
+def api_get_upn_suffixes():
+    domain_id = request.args.get('domain_id', '').strip()
+    cfg = get_domain_config_by_id(domain_id) if domain_id else get_active_domain_config()
+    if not cfg:
+        return jsonify({"suffixes": []})
+    return jsonify({"suffixes": get_upn_suffixes(cfg)})
+
+@app.route('/api/domains')
+@domain_required
+@login_required
+def api_get_domains():
+    """Danh sách các domain đã từng kết nối — dùng cho dropdown chọn domain lúc tạo user
+    (hỗ trợ trường hợp công ty có nhiều domain, vd .local nội bộ và .vn Azure/O365)."""
+    return jsonify({"domains": list_domain_configs()})
+
 @app.route('/api/groups')
 @domain_required
 @login_required
 def api_get_groups():
-    cfg = get_active_domain_config()
+    domain_id = request.args.get('domain_id', '').strip()
+    cfg = get_domain_config_by_id(domain_id) if domain_id else get_active_domain_config()
     ps_cmd = (
         "Get-ADGroup -Filter * -Properties DistinguishedName | "
         "Where-Object { $_.DistinguishedName -notmatch 'CN=Builtin' -and "
@@ -1188,7 +1420,8 @@ def api_get_groups():
 @domain_required
 @login_required
 def api_get_ous():
-    cfg = get_active_domain_config()
+    domain_id = request.args.get('domain_id', '').strip()
+    cfg = get_domain_config_by_id(domain_id) if domain_id else get_active_domain_config()
     # Ngoài các OU thật, bổ sung container mặc định "Computers" (CN=Computers,...) —
     # đây là nơi các máy mới join domain tự động rơi vào (không phải OU nên
     # Get-ADOrganizationalUnit không trả về), lấy qua (Get-ADDomain).ComputersContainer
@@ -1794,4 +2027,7 @@ for _attempt in range(10):
             print("[startup] init_db gave up after 10 attempts — DB may be unavailable")
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # debug=False: tắt Werkzeug interactive debugger — nếu bật, khi có lỗi chưa được
+    # bắt (unhandled exception) sẽ hiện console Python tương tác ngay trên trình duyệt,
+    # có thể dẫn tới thực thi mã tuỳ ý (RCE) nếu ai đó truy cập được vào lúc đó.
+    app.run(host='0.0.0.0', port=5000, debug=False)

@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{ session.get('csrf_token','') }}">
 <title>{{ domain_info.ldap_host if domain_info else "PV" }} — Infrastructure Portal</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
@@ -112,7 +113,7 @@
             <button class="close-btn" onclick="closeModal('createGroupModal')">✕</button>
         </div>
         <div class="modal-body">
-            <form id="createGroupForm" action="/create-group" method="POST" onsubmit="showLoading()">
+            <form id="createGroupForm" action="/create-group" method="POST" onsubmit="return false;">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
                     <div class="form-group">
                         <label>Tên Group *</label>
@@ -150,7 +151,7 @@
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeModal('createGroupModal')">Hủy</button>
-            <button type="button" class="btn btn-primary" onclick="document.getElementById('createGroupForm').submit();showLoading();">+ Tạo Group</button>
+            <button type="button" class="btn btn-primary" onclick="submitCreateGroup()">+ Tạo Group</button>
         </div>
     </div>
 </div>
@@ -318,7 +319,9 @@
 </div>
 
 <!-- Hidden form for domain disconnect -->
-    <form id="disconnectDomainForm" action="/disconnect-domain" method="POST" class="hidden"></form>
+    <form id="disconnectDomainForm" action="/disconnect-domain" method="POST" class="hidden">
+        <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token','') }}">
+    </form>
 </aside>
 
 <!-- ══════════════════ MAIN ══════════════════ -->
@@ -415,41 +418,46 @@
                     <button class="close-btn" onclick="closeAllPanels()">✕</button>
                 </div>
                 <div class="modal-body">
-                <form id="createUserForm" action="/create-user" method="POST" onsubmit="showLoading()">
+                <form id="createUserForm" action="/create-user" method="POST" onsubmit="return false;">
                     <div class="form-grid">
                         <div class="form-group">
-                            <label>SamAccountName</label>
+                            <label>User</label>
                             <input type="text" name="sam_account_name" placeholder="vd: longnh" required>
                         </div>
                         <div class="form-group">
-                            <label>Họ và Tên</label>
+                            <label>Domain</label>
+                            <select name="upn_suffix" id="cu_upn_select"
+                                    style="height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                                <option value="">— Chọn domain trước —</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Full name</label>
                             <input type="text" name="full_name" placeholder="Nguyễn Văn Long" required>
                         </div>
                         <div class="form-group">
-                            <label>Mật Khẩu Khởi Tạo</label>
+                            <label>Password</label>
                             <input type="text" name="password" placeholder="Để trống → dùng mặc định">
                         </div>
                         <div class="form-group">
-                            <label>OU DN</label>
-                            <input type="text" name="ou_dn" value="OU=Users,DC=pv,DC=local" required>
+                            <label>OU</label>
+                            <select name="ou_dn" id="cu_ou_select" required
+                                    style="height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                                <option value="">— Chọn domain trước —</option>
+                            </select>
                         </div>
                     </div>
                     <div class="form-group" style="margin-top:12px;">
-                        <label>Gán Group (tích chọn 1 hoặc nhiều)</label>
-                        <div class="checkbox-list" style="border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);max-height:220px;overflow-y:auto;padding:8px 12px;">
-                            {% for g in ad_groups %}
-                            <label style="display:flex;align-items:center;gap:8px;padding:6px 2px;font-size:13px;font-weight:400;cursor:pointer;">
-                                <input type="checkbox" name="group_ids[]" value="{{ g.Name }}" style="width:15px;height:15px;cursor:pointer;flex-shrink:0;">
-                                <span>{{ g.Name }}</span>
-                            </label>
-                            {% endfor %}
+                        <label>Gán Group</label>
+                        <div class="checkbox-list" id="cu_groups_list" style="border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);max-height:220px;overflow-y:auto;padding:8px 12px;">
+                            <div style="text-align:center;color:var(--text-muted);padding:10px;">Đang tải groups...</div>
                         </div>
                     </div>
                 </form>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" onclick="closeAllPanels()">Hủy</button>
-                    <button class="btn btn-primary" type="submit" form="createUserForm">
+                    <button class="btn btn-primary" type="button" onclick="submitCreateUser()">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         Tạo User
                     </button>
@@ -467,6 +475,7 @@
                 </div>
                 <div class="modal-body">
                 <form id="licenseInventoryForm" action="/save-software-inventory" method="POST" onsubmit="return confirmLicenseSave(event)">
+                    <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token','') }}">
                     <input type="hidden" id="form_row_id" name="row_id">
                     <div class="form-grid">
                         <div class="form-group">
@@ -508,6 +517,7 @@
                 </div>
                 <div class="modal-body">
                 <form id="assignLicenseForm" action="/assign-software-direct" method="POST" onsubmit="showLoading()">
+                    <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token','') }}">
                     <div class="form-grid">
                         <div class="form-group">
                             <label>User AD</label>
@@ -560,7 +570,7 @@
                     {% if session.get('is_admin') %}
                     <a href="/export-users-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export</a>
                     <button class="btn btn-secondary btn-sm" title="Chọn OU hiển thị" onclick="openOuFilterModal('users')">⚙ Lọc OU</button>
-                    <button class="btn btn-primary btn-sm" onclick="openPanel('create-user-panel', null); loadOuSelect()">+ Tạo User</button>
+                    <button class="btn btn-primary btn-sm" onclick="openPanel('create-user-panel', null); initCreateUserForm()">+ Tạo User</button>
                     {% endif %}
                 </div>
             </div>
@@ -593,14 +603,15 @@
                             </td>
                             <td>
                                 {% if session.get('is_admin') %}
-                                <button class="btn btn-ghost btn-sm"
+                                <button class="btn btn-ghost btn-sm btn-icon-edit"
                                         onclick="openUserEditModal(this)"
                                         data-sam="{{ u.SamAccountName }}"
                                         data-name="{{ u.Name | e }}"
                                         data-enabled="{{ 'true' if u.Enabled else 'false' }}"
                                         data-groups="{{ u.Groups | e if u.Groups else '' }}"
-                                        data-dn="{{ u.DistinguishedName | e if u.DistinguishedName else '' }}">
-                                    ✏ Edit
+                                        data-dn="{{ u.DistinguishedName | e if u.DistinguishedName else '' }}"
+                                        title="Chỉnh sửa">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                                 </button>
                                 {% endif %}
                             </td>
@@ -1146,18 +1157,25 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
             <!-- TAB: Thông tin -->
             <div id="eu_tab_info" class="eu-tab-panel">
                 <div class="eu-grid-2">
-                    <div class="eu-field">
-                        <label class="eu-label">Username mới (để trống = giữ nguyên)</label>
+                    <div class="eu-field eu-field-card">
+                        <label class="eu-label">Username</label>
                         <input type="text" id="eu_new_sam" class="eu-input eu-mono" placeholder="Đổi username...">
                     </div>
-                    <div class="eu-field">
-                        <label class="eu-label">Mật khẩu mới (để trống = không đổi)</label>
+                    <div class="eu-field eu-field-card">
+                        <label class="eu-label">Password</label>
                         <input type="password" id="eu_password" class="eu-input" placeholder="Mật khẩu mới...">
                     </div>
-                    <div class="eu-field" style="grid-column:1/-1;">
-                        <label class="eu-label">Tên hiển thị (AD Rename)</label>
+                    <div class="eu-field eu-field-card">
+                        <label class="eu-label">Full name</label>
                         <input type="text" id="eu_display_name" class="eu-input" placeholder="Tên hiển thị trong AD...">
-                        <div class="eu-hint">Tương đương chuột phải → Rename trong AD</div>
+                        <!-- <div class="eu-hint">Tương đương chuột phải → Rename trong AD</div> -->
+                    </div>
+                    <div class="eu-field eu-field-card">
+                        <label class="eu-label">Domain</label>
+                        <select id="eu_upn_select" class="eu-select">
+                            <option value="">— Giữ nguyên domain đăng nhập hiện tại —</option>
+                        </select>
+                        <!-- <div class="eu-hint">vd chọn giữa @pv.local / @aureole.local</div> -->
                     </div>
                 </div>
 
@@ -1171,42 +1189,42 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
 
                 <div class="eu-divider"></div>
 
-                <label class="eu-label">Di chuyển sang OU khác (để trống = giữ nguyên)</label>
+                <label class="eu-label">Change OU</label>
                 <select id="eu_ou_select" class="eu-select">
                     <option value="">— Giữ nguyên OU hiện tại —</option>
                 </select>
-                <div class="eu-hint">OU hiện tại: <span id="eu_current_ou" class="eu-mono"></span></div>
+                <!-- <div class="eu-hint">OU hiện tại: <span id="eu_current_ou" class="eu-mono"></span></div> -->
             </div>
 
             <!-- TAB: Group -->
             <div id="eu_tab_group" class="eu-tab-panel" style="display:none;">
-                <label class="eu-label">Groups hiện tại — bấm ✕ để xóa</label>
+                <label class="eu-label">Groups hiện tại</label>
                 <div id="eu_current_groups" class="eu-pill-box"></div>
-                <label class="eu-label" style="margin-top:14px;">Thêm vào Group</label>
+                <label class="eu-label" style="margin-top:14px;">Group</label>
                 <div class="eu-row-select-btn">
                     <select id="eu_group_select" class="eu-select"></select>
                     <button type="button" id="eu_add_btn" class="eu-btn-blue" onclick="euAddGroup()">+ Thêm</button>
                 </div>
-                <div class="eu-note" style="margin-top:14px;">ℹ Thay đổi Group áp dụng ngay lên AD, không cần bấm Lưu.</div>
+                <!-- <div class="eu-note" style="margin-top:14px;">ℹ Thay đổi Group áp dụng ngay lên AD, không cần bấm Lưu.</div> -->
             </div>
 
             <!-- TAB: Computer -->
             <div id="eu_tab_computer" class="eu-tab-panel" style="display:none;">
-                <label class="eu-label">Computer đang gán — bấm ✕ để bỏ gán</label>
+                <label class="eu-label">Computer đang gán</label>
                 <div id="eu_current_computers" class="eu-pill-box"></div>
-                <label class="eu-label" style="margin-top:14px;">Gán thêm Computer (chỉ máy đang sử dụng)</label>
+                <label class="eu-label" style="margin-top:14px;">Gán thêm Computer</label>
                 <div class="eu-row-select-btn">
                     <select id="eu_computer_select" class="eu-select"></select>
                     <button type="button" id="eu_add_computer_btn" class="eu-btn-blue" onclick="euAddComputer()">+ Gán</button>
                 </div>
-                <div class="eu-note" style="margin-top:14px;">ℹ Gán/Bỏ gán Computer áp dụng ngay, không cần bấm Lưu.</div>
+                <!-- <div class="eu-note" style="margin-top:14px;">ℹ Gán/Bỏ gán Computer áp dụng ngay, không cần bấm Lưu.</div> -->
             </div>
 
         </div>
 
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeUserModal()">Đóng</button>
-            <button type="button" class="btn btn-primary" onclick="euSaveAll()">💾 Lưu Thông Tin Tài Khoản</button>
+            <button type="button" class="btn btn-primary" onclick="euSaveAll()">💾 Lưu</button>
         </div>
     </div>
 </div>
@@ -1233,7 +1251,21 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
 .eu-body { display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; padding: 18px 20px; }
 .eu-tab-panel { display: flex; flex-direction: column; }
 .eu-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.btn-icon-edit {
+    width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center;
+    justify-content: center; border-radius: 50%; flex-shrink: 0;
+}
 .eu-field { display: flex; flex-direction: column; }
+.eu-field-card {
+    background: rgba(127,127,127,.06);
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    padding: 12px 14px;
+    transition: background .15s;
+}
+.eu-field-card:hover { background: rgba(127,127,127,.1); }
+html[data-theme="dark"] .eu-field-card { background: rgba(255,255,255,.035); }
+html[data-theme="dark"] .eu-field-card:hover { background: rgba(255,255,255,.06); }
 .eu-label {
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
     color: var(--text-soft); margin-bottom: 5px; display: block;
@@ -1327,6 +1359,27 @@ html[data-theme="dark"] #cmp-page-subtitle { color:#c8c8c8 !important; }
 <script id="adGroupsData" type="application/json">{{ ad_groups | map(attribute='Name') | list | tojson }}</script>
 
 <script>
+// ─────────────────────── CSRF: tự động gắn token vào mọi fetch() cùng origin ───────────────────────
+// Không cần sửa từng chỗ gọi fetch trong file này — override 1 lần duy nhất ở đây.
+(function() {
+    const meta  = document.querySelector('meta[name="csrf-token"]');
+    const token = meta ? meta.getAttribute('content') : '';
+    if (!token) return;
+    const origFetch = window.fetch;
+    window.fetch = function(input, init) {
+        init = init || {};
+        const url = (typeof input === 'string') ? input : (input && input.url) || '';
+        const isRelative  = !/^https?:\/\//i.test(url);
+        const sameOrigin  = isRelative || url.indexOf(window.location.origin) === 0;
+        if (sameOrigin) {
+            const headers = new Headers(init.headers || (typeof input !== 'string' && input.headers) || {});
+            headers.set('X-CSRF-Token', token);
+            init.headers = headers;
+        }
+        return origFetch(input, init);
+    };
+})();
+
 // ─────────────────────── THEME ───────────────────────
 function toggleTheme() {
     const html = document.documentElement;
@@ -1761,11 +1814,7 @@ function euRemoveGroup(group) {
 
 // ── Lưu tất cả thay đổi ──
 function euSaveStatus() { euSaveAll(); }  // backward compat
-function euSaveAll() { 
-    showLoading();
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/edit-user-ad';
+function euSaveAll() {
     const fields = {
         'edit_username':     _euSam,
         'edit_new_sam':      (document.getElementById('eu_new_sam')      || {}).value || '',
@@ -1773,13 +1822,26 @@ function euSaveAll() {
         'edit_password':     (document.getElementById('eu_password')     || {}).value || '',
         'edit_status':       document.getElementById('eu_status').value,
         'edit_ou_dn':        (document.getElementById('eu_ou_select')    || {}).value || '',
+        'edit_upn_suffix':   (document.getElementById('eu_upn_select')   || {}).value || '',
     };
-    Object.entries(fields).forEach(([k, v]) => {
-        const i = document.createElement('input');
-        i.type='hidden'; i.name=k; i.value=v; form.appendChild(i);
-    });
-    document.body.appendChild(form);
-    form.submit();
+    const form = new URLSearchParams(fields);
+    showLoading();
+    fetch('/edit-user-ad', { method: 'POST', body: form })
+        .then(r => r.json())
+        .then(d => {
+            hideLoading();
+            if (d.status === 'success') {
+                showToast('Đã lưu thay đổi thành công', 'success');
+                closeUserModal();
+                setTimeout(() => location.reload(), 600);
+            } else {
+                // Hiện lỗi thật (vd: mật khẩu không đủ độ phức tạp theo chính sách domain) —
+                // trước đây lỗi này bị nuốt âm thầm, trang vẫn quay về Dashboard như thành công.
+                alert('Có lỗi xảy ra khi lưu:\n\n' + d.message);
+                showToast('Lưu thất bại — xem chi tiết trong popup', 'danger');
+            }
+        })
+        .catch(() => { hideLoading(); showToast('Lỗi kết nối', 'danger'); });
 }
 
 // ─────────────────────── DISCONNECT DOMAIN ───────────────────────
@@ -1873,10 +1935,11 @@ function resetListPicker(selectId) {
     if (st) { st.input.value = ''; st.render(''); }
 }
 
-function _loadOuIntoSelect(selId, defaultText) {
+function _loadOuIntoSelect(selId, defaultText, domainId) {
     const sel = document.getElementById(selId);
     if (!sel) return;
-    fetch('/api/ous').then(r=>r.json()).then(data=>{
+    const url = domainId ? `/api/ous?domain_id=${encodeURIComponent(domainId)}` : '/api/ous';
+    fetch(url).then(r=>r.json()).then(data=>{
         sel.innerHTML = `<option value="">${defaultText||'— Mặc định —'}</option>`;
         (data.ous||[]).forEach(ou=>{
             const opt=document.createElement('option');
@@ -1891,9 +1954,118 @@ function _loadOuIntoSelect(selId, defaultText) {
         });
     }).catch(()=>{});
 }
+// ── Tạo User: tải OU + Group + UPN suffix của domain đang kết nối (bỏ dropdown chọn domain,
+// vẫn giữ nguyên khả năng chọn domain đăng nhập UPN bên dưới) ──
+function initCreateUserForm() {
+    _loadOuIntoSelect('cu_ou_select', '— Chọn OU —');
+    loadGroupsForCreateUser();
+    loadUpnSuffixesForCreateUser();
+}
+
+// ── UPN suffix (domain đăng nhập, vd @pv.local / @aureole.local) — giống tab Account trong ADUC ──
+function loadUpnSuffixesForCreateUser(domainId) {
+    const sel = document.getElementById('cu_upn_select');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Đang tải...</option>';
+    const url = domainId ? `/api/upn-suffixes?domain_id=${encodeURIComponent(domainId)}` : '/api/upn-suffixes';
+    fetch(url).then(r=>r.json()).then(data=>{
+        const suffixes = data.suffixes || [];
+        sel.innerHTML = '';
+        if (!suffixes.length) {
+            sel.innerHTML = '<option value="">(không lấy được danh sách UPN)</option>';
+            return;
+        }
+        suffixes.forEach((s, i) => {
+            const opt = document.createElement('option');
+            opt.value = s;
+            opt.textContent = '@' + s;
+            if (i === 0) opt.selected = true;
+            sel.appendChild(opt);
+        });
+    }).catch(()=>{ sel.innerHTML = '<option value="">Lỗi tải danh sách UPN</option>'; });
+}
+
+function loadUpnSuffixesForEdit() {
+    const sel = document.getElementById('eu_upn_select');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Giữ nguyên domain đăng nhập hiện tại —</option>';
+    fetch('/api/upn-suffixes').then(r=>r.json()).then(data=>{
+        const suffixes = data.suffixes || [];
+        suffixes.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s;
+            opt.textContent = '@' + s;
+            sel.appendChild(opt);
+        });
+    }).catch(()=>{});
+}
+
+function loadGroupsForCreateUser(domainId) {
+    const box = document.getElementById('cu_groups_list');
+    if (!box) return;
+    box.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:10px;">Đang tải groups...</div>';
+    const url = domainId ? `/api/groups?domain_id=${encodeURIComponent(domainId)}` : '/api/groups';
+    fetch(url).then(r=>r.json()).then(data=>{
+        const groups = data.groups || [];
+        if (!groups.length) {
+            box.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:10px;">Không có group nào</div>';
+            return;
+        }
+        box.innerHTML = groups.map(g => `
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 2px;font-size:13px;font-weight:400;cursor:pointer;">
+                <input type="checkbox" name="group_ids[]" value="${g}" style="width:15px;height:15px;cursor:pointer;flex-shrink:0;">
+                <span>${g}</span>
+            </label>`).join('');
+    }).catch(()=>{ box.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:10px;">Lỗi tải groups</div>'; });
+}
+
 function loadOuSelect()      { _loadOuIntoSelect('ou_dn_select','— Chọn OU —'); }
 function loadGroupOuSelect() { _loadOuIntoSelect('cg_ou_select','— CN=Users (mặc định) —'); }
 function loadEditOuSelect()  { _loadOuIntoSelect('eu_ou_select','— Giữ nguyên OU hiện tại —'); }
+
+// ── Tạo User: submit bằng fetch để hiện đúng lỗi thật từ AD (vd trùng tên, sai domain...) ──
+function submitCreateUser() {
+    const form = document.getElementById('createUserForm');
+    if (!form.reportValidity()) return;
+    const fd = new FormData(form);
+    showLoading();
+    fetch('/create-user', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => {
+            hideLoading();
+            if (d.status === 'success') {
+                showToast('Đã tạo user thành công: ' + d.username, 'success');
+                closeAllPanels();
+                setTimeout(() => location.reload(), 600);
+            } else {
+                alert('Có lỗi khi tạo user:\n\n' + (d.message || 'Lỗi không rõ'));
+                showToast(d.message || 'Tạo user thất bại', 'danger');
+            }
+        })
+        .catch(() => { hideLoading(); showToast('Lỗi kết nối', 'danger'); });
+}
+
+// ── Tạo Group: submit bằng fetch để hiện đúng lỗi thật từ AD thay vì redirect âm thầm ──
+function submitCreateGroup() {
+    const form = document.getElementById('createGroupForm');
+    if (!form.reportValidity()) return;
+    const fd = new FormData(form);
+    showLoading();
+    fetch('/create-group', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => {
+            hideLoading();
+            if (d.status === 'success') {
+                showToast('Đã tạo group thành công: ' + d.group, 'success');
+                closeModal('createGroupModal');
+                setTimeout(() => location.reload(), 600);
+            } else {
+                alert('Có lỗi khi tạo group:\n\n' + (d.message || 'Lỗi không rõ'));
+                showToast(d.message || 'Tạo group thất bại', 'danger');
+            }
+        })
+        .catch(() => { hideLoading(); showToast('Lỗi kết nối', 'danger'); });
+}
 
 // ─────────────────────── LỌC OU HIỂN THỊ (Users / Computers) ───────────────────────
 let _ouFilterSection = null;
@@ -2532,6 +2704,7 @@ function openUserEditModal(btn) {
     euRenderSelect();
     euLoadComputers();
     loadEditOuSelect();
+    loadUpnSuffixesForEdit();
     euSwitchTab('info');
 
     resetListPicker('eu_computer_select');
