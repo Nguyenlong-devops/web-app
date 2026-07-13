@@ -10,6 +10,7 @@ import paramiko
 from datetime import timedelta
 from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response, session
 from ldap3 import Server, Connection, ALL
+import socket
 
 app = Flask(__name__)
 
@@ -613,14 +614,15 @@ def connect_domain():
     error   = None
     cfg     = get_active_domain_config()
 
-    # Trước đây route này KHÔNG yêu cầu đăng nhập — bất kỳ ai (kể cả chưa xác thực) cũng có
-    # thể POST lên đây để ghi đè domain đang active thành 1 LDAP server giả do họ dựng lên.
-    # Hậu quả: mọi nhân viên đăng nhập vào tool sau đó sẽ vô tình gửi username/password AD
-    # thật của mình sang server giả đó (vì /login luôn bind vào domain đang active).
-    # Chỉ cho phép bỏ qua đăng nhập khi CHƯA từng kết nối domain nào (lần setup đầu tiên) —
-    # một khi đã có domain, bắt buộc phải là admin đã đăng nhập mới được đổi sang domain khác.
-    if cfg and not (session.get('user') and session.get('is_admin')):
-        return redirect(url_for('login'))
+    # LƯU Ý BẢO MẬT (đã tắt theo yêu cầu để nút "Đổi/Thoát Domain" luôn hoạt động được,
+    # kể cả khi domain cũ vẫn "reachable" về mặt mạng nhưng không login/dùng được vì lý do
+    # khác — ví dụ deploy ở môi trường mới, VPN vô tình route sang được mạng cũ, sai domain
+    # cần trỏ tới, v.v.):
+    # Route này hiện KHÔNG yêu cầu đăng nhập và KHÔNG còn kiểm tra domain cũ có reachable hay
+    # không nữa — bất kỳ ai truy cập được vào địa chỉ web app đều có thể đổi domain đang active
+    # sang 1 LDAP server khác. Nếu muốn có thêm 1 lớp bảo vệ mà không bị khoá kiểu này nữa,
+    # nhắn tôi để thêm cơ chế "secret token" (chỉ ai biết secret set qua biến môi trường mới
+    # đổi được domain) thay vì dựa vào việc đăng nhập/ping domain cũ.
 
     if request.method == 'POST':
         ldap_host = request.form.get('ldap_host', '').strip()
