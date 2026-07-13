@@ -593,6 +593,12 @@ def get_ad_users_and_groups(cfg, force_refresh=False):
                 error = f"Lỗi phân tích dữ liệu trả về từ AD: {e}"
                 print(f"JSON AD Error: {e}")
 
+    # Ẩn các tài khoản hệ thống mặc định của AD (không phải nhân viên thật, không nên hiển
+    # thị/thao tác trong tool quản trị này) — Guest bị disable sẵn theo policy AD chuẩn,
+    # krbtgt là tài khoản nội bộ Kerberos KDC dùng, đổi/xoá có thể phá cả domain.
+    _HIDDEN_BUILTIN_USERS = {'guest', 'krbtgt'}
+    ad_users = [u for u in ad_users if (u.get('SamAccountName') or '').lower() not in _HIDDEN_BUILTIN_USERS]
+
     _AD_CACHE[domain_key] = {'users': ad_users, 'groups': ad_groups, 'ts': now, 'error': error}
     return ad_users, ad_groups, error
 
