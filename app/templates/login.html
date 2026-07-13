@@ -266,6 +266,24 @@ body::after {
     background: var(--card);
     box-shadow: 0 0 0 3px var(--azure-glow);
 }
+.form-group select {
+    width: 100%;
+    padding: 11px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: all .2s;
+    cursor: pointer;
+}
+.form-group select:focus {
+    border-color: var(--azure);
+    background: var(--card);
+    box-shadow: 0 0 0 3px var(--azure-glow);
+}
 
 .btn-login {
     width: 100%;
@@ -313,7 +331,7 @@ body::after {
     <div class="left-panel">
         <div class="lp-brand">
             <div class="lp-brand-icon">⚡</div>
-            <span class="lp-brand-name">{{ domain_suffix.upper().lstrip('@') }} DOMAIN</span>
+            <span class="lp-brand-name">{{ (domain_suffix.upper().lstrip('@') + ' DOMAIN') if domain_suffix else (domains|length ~ ' DOMAINS AVAILABLE') }}</span>
         </div>
 
         <div class="lp-main">
@@ -353,13 +371,30 @@ body::after {
         </div>
 
         <div class="rp-title">AIT Đăng nhập</div>
-        <div class="rp-subtitle">Sử dụng tài khoản Active Directory của bạn — {{ domain_host }}</div>
+        <div class="rp-subtitle">
+            {% if domain_host %}Sử dụng tài khoản Active Directory của bạn — {{ domain_host }}{% else %}Chọn domain và đăng nhập bằng tài khoản Active Directory của bạn{% endif %}
+        </div>
 
         {% if error %}
         <div class="alert alert-danger">{{ error }}</div>
         {% endif %}
 
         <form method="POST" action="/login">
+            {% if domains|length > 1 %}
+            <div class="form-group">
+                <label>Domain</label>
+                <select name="domain_id" required>
+                    <option value="" disabled {% if not selected_domain_id %}selected{% endif %}>— Chọn domain —</option>
+                    {% for d in domains %}
+                    <option value="{{ d.id }}" {% if selected_domain_id|string == d.id|string %}selected{% endif %}>
+                        {{ d.domain_suffix.lstrip('@').upper() }} &nbsp;({{ d.ldap_host }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% elif domains|length == 1 %}
+            <input type="hidden" name="domain_id" value="{{ domains[0].id }}">
+            {% endif %}
             <div class="form-group">
                 <label>Tài khoản AD</label>
                 <input type="text" name="username" placeholder="Ví dụ: longnh" autocomplete="username" required autofocus>
@@ -376,7 +411,7 @@ body::after {
 
         <div class="rp-footer">
             AIT Infrastructure Automation Platform &copy; 2026 by NguyenLong<br>
-            <a href="/connect-domain" style="color:var(--azure); text-decoration:none; font-weight:600;">⚙ Đổi / Thoát Domain</a>
+            <a href="/connect-domain" style="color:var(--azure); text-decoration:none; font-weight:600;">⚙ Thêm / Quản Lý Domain</a>
         </div>
     </div>
 

@@ -41,7 +41,7 @@ def _enforce_idle_session_timeout():
 # qua field 'csrf_token' cho 1 số form submit thẳng không qua fetch). Nếu chưa đăng nhập thì bỏ
 # qua bước này, để các decorator login_required/admin_required của từng route tự xử lý (tránh
 # lộ thông tin CSRF token không cần thiết trên các request công khai).
-_CSRF_EXEMPT_PATHS = {'/login', '/connect-domain'}
+_CSRF_EXEMPT_PATHS = {'/login', '/connect-domain', '/disconnect-domain'}
 
 @app.before_request
 def _csrf_protect():
@@ -271,11 +271,14 @@ def get_active_domain_config():
         conn.close()
 
 def save_domain_config(cfg: dict):
-    """Lưu config domain mới, deactivate config cũ."""
+    """Lưu 1 domain MỚI vào danh sách — KHÔNG deactivate các domain khác nữa (trước đây mỗi
+    lần connect domain mới sẽ tắt hết domain cũ, chỉ cho phép dùng 1 domain duy nhất tại 1
+    thời điểm cho cả hệ thống). Giờ hệ thống hỗ trợ nhiều domain cùng tồn tại song song —
+    mỗi session đăng nhập (mỗi trình duyệt/mỗi admin) tự chọn domain riêng của mình khi login,
+    độc lập với các session khác đang dùng domain khác."""
     conn = get_db_connection()
     cur  = conn.cursor()
     try:
-        cur.execute("UPDATE domain_config SET is_active = FALSE WHERE is_active = TRUE")
         cur.execute("""
             INSERT INTO domain_config
                 (ldap_host, domain_suffix, base_dn, admin_group_dn, ssh_host, ssh_user, ssh_pass, is_active)
@@ -290,6 +293,27 @@ def save_domain_config(cfg: dict):
         conn.rollback()
         print(f"save_domain_config error: {e}")
         return False
+    finally:
+        cur.close()
+        conn.close()
+
+def list_active_domain_configs():
+    """Danh sách domain đang khả dụng để chọn khi đăng nhập (mỗi domain_suffix chỉ lấy bản
+    ghi is_active mới nhất). Dùng cho dropdown chọn domain ở trang /login."""
+    conn = get_db_connection()
+    cur  = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT DISTINCT ON (domain_suffix) id, ldap_host, domain_suffix
+            FROM domain_config
+            WHERE is_active = TRUE
+            ORDER BY domain_suffix, id DESC
+        """)
+        rows = cur.fetchall()
+        return [{"id": r[0], "ldap_host": r[1], "domain_suffix": r[2]} for r in rows]
+    except Exception as e:
+        print(f"list_active_domain_configs error: {e}")
+        return []
     finally:
         cur.close()
         conn.close()
@@ -339,6 +363,20 @@ def get_domain_config_by_id(domain_id):
         cur.close()
         conn.close()
 
+def current_domain_cfg():
+    """Trả về config domain gắn với SESSION hiện tại (mỗi phiên đăng nhập độc lập với 1 domain
+    riêng — đây là điểm khác biệt cốt lõi so với get_active_domain_config() cũ, vốn dùng chung
+    1 "domain active" duy nhất cho toàn bộ hệ thống/mọi người dùng).
+    Session được gán domain_id ngay lúc đăng nhập thành công ở /login. Nếu vì lý do nào đó
+    session chưa có domain_id (vd phiên cũ trước khi nâng cấp multi-domain), fallback về domain
+    active gần nhất để không phá vỡ session đang dùng dở."""
+    domain_id = session.get('domain_id')
+    if domain_id:
+        cfg = get_domain_config_by_id(domain_id)
+        if cfg:
+            return cfg
+    return get_active_domain_config()
+
 def list_domain_configs():
     """Trả về danh sách các domain từng được kết nối (mỗi domain_suffix chỉ lấy bản ghi mới
     nhất — vì mỗi lần kết nối lại cùng 1 domain sẽ tạo thêm 1 dòng lịch sử mới).
@@ -361,11 +399,17 @@ def list_domain_configs():
         cur.close()
         conn.close()
 
-def deactivate_domain_config():
+def deactivate_domain_config(domain_id=None):
+    """Ngắt kết nối 1 domain CỤ THỂ (domain_id). Nếu domain_id=None (giữ tương thích code cũ
+    gọi không tham số), tắt hết mọi domain — chỉ nên dùng cho script quản trị/CLI, KHÔNG dùng
+    trong route web thông thường nữa vì sẽ ảnh hưởng tới mọi admin khác đang dùng domain khác."""
     conn = get_db_connection()
     cur  = conn.cursor()
     try:
-        cur.execute("UPDATE domain_config SET is_active = FALSE WHERE is_active = TRUE")
+        if domain_id:
+            cur.execute("UPDATE domain_config SET is_active = FALSE WHERE id = %s", (domain_id,))
+        else:
+            cur.execute("UPDATE domain_config SET is_active = FALSE WHERE is_active = TRUE")
         conn.commit()
         return True
     except Exception as e:
@@ -413,50 +457,65 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
     if not cfg:
         return ("", "Chưa kết nối domain", 1) if return_stderr else ""
 
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    try:
-        ssh.connect(hostname=cfg['ssh_host'], username=cfg['ssh_user'], password=cfg['ssh_pass'], timeout=10)
-        # Ép PowerShell xuất ra UTF-8 thay vì bảng mã console mặc định (OEM/ANSI) —
-        # đây là nguyên nhân chính khiến tên user tiếng Việt (dấu) bị lỗi font khi đọc về.
-        # $ProgressPreference = SilentlyContinue: chặn PowerShell serialize thông báo tiến trình
-        # (vd "Loading Active Directory module...") thành CLIXML lẫn vào stderr — đây là nguyên
-        # nhân khiến lỗi hiển thị cho người dùng bị rác đầy "#< CLIXML ..." khó đọc.
-        encoding_prefix = (
-            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-            "$OutputEncoding = [System.Text.Encoding]::UTF8; "
-            "$ProgressPreference = 'SilentlyContinue'; "
-        )
-        encoded_cmd = base64.b64encode((encoding_prefix + command_block).encode('utf-16-le')).decode('utf-8')
-        # Dùng $LASTEXITCODE và thêm exit code vào cuối stdout để detect lỗi chính xác
-        # stderr của PowerShell thường có noise (progress, warning) dù thành công
-        full_command = (
-            f"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded_cmd}"
-        )
-        stdin, stdout, stderr = ssh.exec_command(full_command)
-        out      = stdout.read().decode('utf-8', errors='ignore')
-        err      = stderr.read().decode('utf-8', errors='ignore')
-        exitcode = stdout.channel.recv_exit_status()  # 0 = success
-        err      = clean_ps_error(err)  # dọn CLIXML nếu vẫn còn sót (vd warning nghiêm trọng)
+    last_exc = None
+    # Thử tối đa 2 lần: lỗi "No existing session" / mất kết nối SSH giữa chừng với OpenSSH
+    # trên Windows đôi khi chỉ là chớp nhoáng — thử lại 1 lần cho ổn định hơn là báo lỗi ngay.
+    for attempt in range(2):
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            # look_for_keys=False, allow_agent=False: nếu không tắt, paramiko sẽ thử xác thực bằng
+            # SSH key / ssh-agent cục bộ TRƯỚC khi thử password — với OpenSSH Server trên Windows,
+            # việc này thường khiến phiên SSH rơi vào trạng thái hỏng và exec_command() sau đó báo
+            # lỗi "No existing session" dù connect() tưởng như đã thành công. Ép chỉ dùng password.
+            ssh.connect(
+                hostname=cfg['ssh_host'], username=cfg['ssh_user'], password=cfg['ssh_pass'],
+                timeout=10, look_for_keys=False, allow_agent=False
+            )
+            # Ép PowerShell xuất ra UTF-8 thay vì bảng mã console mặc định (OEM/ANSI) —
+            # đây là nguyên nhân chính khiến tên user tiếng Việt (dấu) bị lỗi font khi đọc về.
+            # $ProgressPreference = SilentlyContinue: chặn PowerShell serialize thông báo tiến trình
+            # (vd "Loading Active Directory module...") thành CLIXML lẫn vào stderr — đây là nguyên
+            # nhân khiến lỗi hiển thị cho người dùng bị rác đầy "#< CLIXML ..." khó đọc.
+            encoding_prefix = (
+                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+                "$OutputEncoding = [System.Text.Encoding]::UTF8; "
+                "$ProgressPreference = 'SilentlyContinue'; "
+            )
+            encoded_cmd = base64.b64encode((encoding_prefix + command_block).encode('utf-16-le')).decode('utf-8')
+            # Dùng $LASTEXITCODE và thêm exit code vào cuối stdout để detect lỗi chính xác
+            # stderr của PowerShell thường có noise (progress, warning) dù thành công
+            full_command = (
+                f"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded_cmd}"
+            )
+            stdin, stdout, stderr = ssh.exec_command(full_command)
+            out      = stdout.read().decode('utf-8', errors='ignore')
+            err      = stderr.read().decode('utf-8', errors='ignore')
+            exitcode = stdout.channel.recv_exit_status()  # 0 = success
+            err      = clean_ps_error(err)  # dọn CLIXML nếu vẫn còn sót (vd warning nghiêm trọng)
 
-        # Nếu lệnh có thay đổi user/group AD (tạo/xóa/sửa/enable/disable/thêm-xóa thành viên),
-        # xoá cache danh sách AD để lần load Dashboard kế tiếp lấy dữ liệu mới nhất ngay,
-        # thay vì phải chờ hết TTL cache.
-        _mutating_keywords = ('New-AD', 'Remove-AD', 'Set-AD', 'Add-ADGroupMember',
-                              'Remove-ADGroupMember', 'Enable-ADAccount', 'Disable-ADAccount')
-        if exitcode == 0 and any(k in command_block for k in _mutating_keywords):
-            _AD_CACHE['ts'] = 0
+            # Nếu lệnh có thay đổi user/group AD (tạo/xóa/sửa/enable/disable/thêm-xóa thành viên),
+            # xoá cache danh sách AD của ĐÚNG domain vừa thao tác để lần load Dashboard kế tiếp lấy
+            # dữ liệu mới nhất ngay, thay vì phải chờ hết TTL cache (không đụng tới cache của các
+            # domain khác đang được admin khác dùng song song).
+            _mutating_keywords = ('New-AD', 'Remove-AD', 'Set-AD', 'Add-ADGroupMember',
+                                  'Remove-ADGroupMember', 'Enable-ADAccount', 'Disable-ADAccount')
+            if exitcode == 0 and any(k in command_block for k in _mutating_keywords):
+                _AD_CACHE.pop(cfg.get('ssh_host'), None)
 
-        if return_stderr:
-            return out, err, exitcode
-        return out
-    except Exception as e:
-        print(f"SSH Error: {e}")
-        if return_stderr:
-            return "", str(e), 1
-        return ""
-    finally:
-        ssh.close()
+            if return_stderr:
+                return out, err, exitcode
+            return out
+        except Exception as e:
+            last_exc = e
+            print(f"SSH Error (attempt {attempt + 1}/2): {e}")
+            continue
+        finally:
+            ssh.close()
+
+    if return_stderr:
+        return "", str(last_exc), 1
+    return ""
 
 # ─────────────────────────────────────────────
 #  Cache Danh Sách User/Group AD
@@ -466,41 +525,55 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
 #  - Gộp còn 1 kết nối SSH duy nhất lấy cả 2 loại dữ liệu, và cache tạm trong ít giây để
 #    các lượt refresh liên tiếp không phải chờ AD trả lời lại từ đầu.
 # ─────────────────────────────────────────────
-_AD_CACHE = {'users': None, 'groups': None, 'ts': 0, 'domain_key': None}
+_AD_CACHE = {}  # domain_key (ssh_host) -> {'users':..., 'groups':..., 'ts':...}
 _AD_CACHE_TTL = 120  # giây — tăng từ 20s lên 120s
 
 def get_ad_users_and_groups(cfg, force_refresh=False):
+    """Trả về (ad_users, ad_groups, error). `error` là None khi lấy dữ liệu thành công (kể cả
+    khi AD thực sự không có user/group nào) — chỉ khác None khi việc kết nối/thực thi PowerShell
+    thất bại, để phân biệt rõ "0 vì AD trống" với "0 vì không lấy được dữ liệu" (trước đây 2
+    trường hợp này hiển thị y hệt nhau — Dashboard hiện toàn số 0 mà không rõ lý do)."""
     domain_key = cfg.get('ssh_host') if cfg else None
     now = time.time()
-    if (not force_refresh and _AD_CACHE['users'] is not None
-            and _AD_CACHE['domain_key'] == domain_key
-            and now - _AD_CACHE['ts'] < _AD_CACHE_TTL):
-        return _AD_CACHE['users'], _AD_CACHE['groups']
+    entry = _AD_CACHE.get(domain_key)
+    if (not force_refresh and entry and entry.get('users') is not None
+            and now - entry.get('ts', 0) < _AD_CACHE_TTL):
+        return entry['users'], entry['groups'], entry.get('error')
 
     ad_users, ad_groups = [], []
-    ps_cmd = (
-        "$u = Get-ADUser -Filter * -Properties MemberOf | "
-        "Select-Object SamAccountName, Name, Enabled, DistinguishedName, "
-        "@{Name='Groups';Expression={($_.MemberOf | ForEach-Object {($_ -split ',')[0] -replace 'CN=', ''}) -join ','}}; "
-        "$g = Get-ADGroup -Filter * -Properties DistinguishedName | "
-        "Where-Object { $_.DistinguishedName -notmatch ',CN=Builtin,' -and "
-        "$_.DistinguishedName -notmatch ',CN=Users,DC=' } | "
-        "Select-Object SamAccountName, Name, DistinguishedName | Sort-Object Name; "
-        "@{ users = @($u); groups = @($g) } | ConvertTo-Json -Compress -Depth 6"
-    )
-    raw = run_powershell_ssh(ps_cmd, cfg)
-    if raw.strip():
-        try:
-            parsed = json.loads(raw)
-            ad_users = parsed.get('users') or []
-            ad_groups = parsed.get('groups') or []
-            if isinstance(ad_users, dict): ad_users = [ad_users]
-            if isinstance(ad_groups, dict): ad_groups = [ad_groups]
-        except Exception as e:
-            print(f"JSON AD Error: {e}")
+    error = None
+    if not cfg:
+        error = "Chưa xác định được domain cho phiên đăng nhập này."
+    else:
+        ps_cmd = (
+            "$u = Get-ADUser -Filter * -Properties MemberOf | "
+            "Select-Object SamAccountName, Name, Enabled, DistinguishedName, "
+            "@{Name='Groups';Expression={($_.MemberOf | ForEach-Object {($_ -split ',')[0] -replace 'CN=', ''}) -join ','}}; "
+            "$g = Get-ADGroup -Filter * -Properties DistinguishedName | "
+            "Where-Object { $_.DistinguishedName -notmatch ',CN=Builtin,' -and "
+            "$_.DistinguishedName -notmatch ',CN=Users,DC=' } | "
+            "Select-Object SamAccountName, Name, DistinguishedName | Sort-Object Name; "
+            "@{ users = @($u); groups = @($g) } | ConvertTo-Json -Compress -Depth 6"
+        )
+        out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+        if ec != 0:
+            # Không kết nối được (SSH sai host/port/user/pass, timeout, DC tắt máy...) hoặc
+            # PowerShell trả lỗi — trước đây bị nuốt âm thầm, giờ đưa ra ngoài để admin thấy
+            # được lý do thật thay vì Dashboard cứ hiện toàn số 0 không rõ nguyên nhân.
+            error = err.strip() or "Không kết nối được tới Domain Controller qua SSH."
+        elif out.strip():
+            try:
+                parsed = json.loads(out)
+                ad_users = parsed.get('users') or []
+                ad_groups = parsed.get('groups') or []
+                if isinstance(ad_users, dict): ad_users = [ad_users]
+                if isinstance(ad_groups, dict): ad_groups = [ad_groups]
+            except Exception as e:
+                error = f"Lỗi phân tích dữ liệu trả về từ AD: {e}"
+                print(f"JSON AD Error: {e}")
 
-    _AD_CACHE.update({'users': ad_users, 'groups': ad_groups, 'ts': now, 'domain_key': domain_key})
-    return ad_users, ad_groups
+    _AD_CACHE[domain_key] = {'users': ad_users, 'groups': ad_groups, 'ts': now, 'error': error}
+    return ad_users, ad_groups, error
 
 # ─────────────────────────────────────────────
 #  Bộ lọc OU hiển thị (riêng cho từng khu vực: users / computers)
@@ -593,12 +666,13 @@ def admin_required(f):
     return decorated
 
 def domain_required(f):
-    """Chỉ cho phép truy cập nếu đã kết nối tới một domain."""
+    """Chỉ cho phép truy cập nếu hệ thống đã có ít nhất 1 domain nào được cấu hình (không nhất
+    thiết phải trùng domain của session hiện tại — mỗi session tự chọn domain riêng lúc login,
+    xem current_domain_cfg())."""
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
-        cfg = get_active_domain_config()
-        if not cfg:
+        if not list_active_domain_configs():
             return redirect(url_for('connect_domain'))
         return f(*args, **kwargs)
     return decorated
@@ -610,19 +684,11 @@ def domain_required(f):
 def connect_domain():
     """Trang khởi đầu: kết nối tới một Active Directory Domain.
     Chỉ cần IP/Host AD + tài khoản Administrator — mọi thông tin khác
-    (domain suffix, base DN, admin group DN) được tự động phát hiện qua LDAP RootDSE."""
+    (domain suffix, base DN, admin group DN) được tự động phát hiện qua LDAP RootDSE.
+    Hỗ trợ nhiều domain cùng tồn tại song song — thêm domain mới ở đây KHÔNG làm mất các
+    domain đã kết nối trước đó, mỗi admin chọn domain muốn dùng riêng lúc đăng nhập."""
     error   = None
-    cfg     = get_active_domain_config()
-
-    # LƯU Ý BẢO MẬT (đã tắt theo yêu cầu để nút "Đổi/Thoát Domain" luôn hoạt động được,
-    # kể cả khi domain cũ vẫn "reachable" về mặt mạng nhưng không login/dùng được vì lý do
-    # khác — ví dụ deploy ở môi trường mới, VPN vô tình route sang được mạng cũ, sai domain
-    # cần trỏ tới, v.v.):
-    # Route này hiện KHÔNG yêu cầu đăng nhập và KHÔNG còn kiểm tra domain cũ có reachable hay
-    # không nữa — bất kỳ ai truy cập được vào địa chỉ web app đều có thể đổi domain đang active
-    # sang 1 LDAP server khác. Nếu muốn có thêm 1 lớp bảo vệ mà không bị khoá kiểu này nữa,
-    # nhắn tôi để thêm cơ chế "secret token" (chỉ ai biết secret set qua biến môi trường mới
-    # đổi được domain) thay vì dựa vào việc đăng nhập/ping domain cũ.
+    domains = list_active_domain_configs()
 
     if request.method == 'POST':
         ldap_host = request.form.get('ldap_host', '').strip()
@@ -687,22 +753,30 @@ def connect_domain():
                 error = "Tài khoản hoặc mật khẩu không chính xác."
             else:
                 error = f"Không thể kết nối tới Active Directory: {str(e)}"
+        domains = list_active_domain_configs()
 
-    return render_template('connect_domain.html', error=error, cfg=cfg)
+    return render_template('connect_domain.html', error=error, domains=domains)
 
 
 @app.route('/disconnect-domain', methods=['POST'])
-@admin_required
 def disconnect_domain():
-    """Thoát khỏi domain hiện tại — xoá cấu hình active và session.
-    Yêu cầu admin đã đăng nhập — trước đây route này không có xác thực, ai cũng có
-    thể gọi để ngắt domain của cả công ty (DoS) chỉ bằng 1 POST request trần."""
-    cfg = get_active_domain_config()
-    actor = session.get('user', 'system')
-    if deactivate_domain_config():
-        write_log(actor, 'DISCONNECT_DOMAIN', target=cfg['ldap_host'] if cfg else None)
-    session.clear()
-    return jsonify({"status": "success", "redirect": url_for('connect_domain')})
+    """Ngắt kết nối 1 domain CỤ THỂ khỏi danh sách domain khả dụng (không còn ai đăng nhập
+    được vào domain đó nữa, nhưng KHÔNG ảnh hưởng tới các domain khác).
+    LƯU Ý BẢO MẬT: route này KHÔNG yêu cầu đăng nhập (giống /connect-domain) — để admin vẫn
+    ngắt/dọn được domain cũ ngay cả khi không đăng nhập được vào domain đó (vd domain cũ không
+    còn AD server thật, hoặc đang bị khoá ngoài). Đánh đổi: ai truy cập được vào địa chỉ web
+    app cũng ngắt được bất kỳ domain nào trong danh sách. Nếu muốn khôi phục yêu cầu đăng nhập
+    admin, thêm lại decorator @admin_required phía trên."""
+    domain_id = request.form.get('domain_id', '').strip() or session.get('domain_id')
+    cfg = get_domain_config_by_id(domain_id) if domain_id else None
+    actor = session.get('user', 'anonymous')
+    if domain_id and deactivate_domain_config(domain_id):
+        write_log(actor, 'DISCONNECT_DOMAIN', target=cfg['ldap_host'] if cfg else str(domain_id))
+        # Nếu domain vừa ngắt chính là domain của session hiện tại -> đăng xuất luôn phiên này.
+        if str(session.get('domain_id')) == str(domain_id):
+            session.clear()
+        return jsonify({"status": "success", "redirect": url_for('connect_domain')})
+    return jsonify({"status": "error", "message": "Không xác định được domain cần ngắt kết nối."}), 400
 
 # ─────────────────────────────────────────────
 #  Login / Logout
@@ -710,60 +784,84 @@ def disconnect_domain():
 @app.route('/login', methods=['GET', 'POST'])
 @domain_required
 def login():
-    cfg = get_active_domain_config()
+    domains = list_active_domain_configs()
+
+    # Xác định domain đang thao tác cho request này: ưu tiên domain_id gửi lên (dropdown chọn
+    # domain ở form login), nếu không có thì nếu hệ thống chỉ có đúng 1 domain thì tự chọn luôn
+    # domain đó (giữ trải nghiệm gọn cho trường hợp phổ biến nhất — chỉ dùng 1 domain).
+    domain_id = request.values.get('domain_id', '').strip()
+    if domain_id:
+        cfg = get_domain_config_by_id(domain_id)
+    elif len(domains) == 1:
+        cfg = get_domain_config_by_id(domains[0]['id'])
+    else:
+        cfg = None
+
     error = None
     if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-        user_dn  = f"{username}{cfg['domain_suffix']}"
-        try:
-            # get_info=None: không load LDAP schema, tiết kiệm 2-3 giây
-            server = Server(cfg['ldap_host'], get_info=None, connect_timeout=3)
-            conn   = Connection(server, user=user_dn, password=password, authentication='SIMPLE')
-            if conn.bind():
-                # Dùng server riêng có get_info để search (chỉ tốn 1 lần nhỏ)
-                s2   = Server(cfg['ldap_host'], get_info=None, connect_timeout=3)
-                conn2 = Connection(s2, user=user_dn, password=password, authentication='SIMPLE')
-                conn2.bind()
-                conn2.search(
-                    search_base=cfg['base_dn'],
-                    search_filter=f'(sAMAccountName={username})',
-                    attributes=['memberOf', 'name']
-                )
-                is_admin     = False
-                display_name = username
-                if conn2.entries:
-                    entry        = conn2.entries[0]
-                    display_name = str(entry.name) if 'name' in entry else username
-                    groups       = entry.memberOf.values if 'memberOf' in entry else []
-                    admin_keywords = [
-                        cfg['admin_group_dn'].lower(),
-                        "cn=domain admins",
-                        "cn=administrators,cn=builtin",
-                    ]
-                    for g in groups:
-                        g_lower = g.lower()
-                        if any(kw in g_lower for kw in admin_keywords):
-                            is_admin = True
-                            break
-                conn2.unbind()
-                conn.unbind()
-                session['user']         = username
-                session['display_name'] = display_name
-                session['is_admin']     = is_admin
-                session['csrf_token']   = secrets.token_hex(16)  # dùng để chống CSRF cho các request POST sau khi đăng nhập
-                write_log(username, 'LOGIN', detail=f"is_admin={is_admin}, domain={cfg['ldap_host']}")
+        if not cfg:
+            error = "Vui lòng chọn domain muốn đăng nhập."
+        else:
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '')
+            user_dn  = f"{username}{cfg['domain_suffix']}"
+            try:
+                # get_info=None: không load LDAP schema, tiết kiệm 2-3 giây
+                server = Server(cfg['ldap_host'], get_info=None, connect_timeout=3)
+                conn   = Connection(server, user=user_dn, password=password, authentication='SIMPLE')
+                if conn.bind():
+                    # Dùng server riêng có get_info để search (chỉ tốn 1 lần nhỏ)
+                    s2   = Server(cfg['ldap_host'], get_info=None, connect_timeout=3)
+                    conn2 = Connection(s2, user=user_dn, password=password, authentication='SIMPLE')
+                    conn2.bind()
+                    conn2.search(
+                        search_base=cfg['base_dn'],
+                        search_filter=f'(sAMAccountName={username})',
+                        attributes=['memberOf', 'name']
+                    )
+                    is_admin     = False
+                    display_name = username
+                    if conn2.entries:
+                        entry        = conn2.entries[0]
+                        display_name = str(entry.name) if 'name' in entry else username
+                        groups       = entry.memberOf.values if 'memberOf' in entry else []
+                        admin_keywords = [
+                            cfg['admin_group_dn'].lower(),
+                            "cn=domain admins",
+                            "cn=administrators,cn=builtin",
+                        ]
+                        for g in groups:
+                            g_lower = g.lower()
+                            if any(kw in g_lower for kw in admin_keywords):
+                                is_admin = True
+                                break
+                    conn2.unbind()
+                    conn.unbind()
+                    session['user']         = username
+                    session['display_name'] = display_name
+                    session['is_admin']     = is_admin
+                    # Domain riêng của PHIÊN NÀY — mỗi session/trình duyệt độc lập, không ảnh
+                    # hưởng tới session của admin khác đang đăng nhập vào domain khác.
+                    session['domain_id']    = cfg['id']
+                    session['csrf_token']   = secrets.token_hex(16)  # dùng để chống CSRF cho các request POST sau khi đăng nhập
+                    write_log(username, 'LOGIN', detail=f"is_admin={is_admin}, domain={cfg['ldap_host']}")
 
-                # Warm AD cache ngầm sau khi login — user sẽ thấy dashboard nhanh hơn
-                import threading
-                threading.Thread(target=get_ad_users_and_groups, args=(cfg, True), daemon=True).start()
+                    # Warm AD cache ngầm sau khi login — user sẽ thấy dashboard nhanh hơn
+                    import threading
+                    threading.Thread(target=get_ad_users_and_groups, args=(cfg, True), daemon=True).start()
 
-                return redirect(url_for('index'))
-            else:
-                error = "Tài khoản hoặc mật khẩu AD không chính xác."
-        except Exception as e:
-            error = f"Không kết nối được tới Domain Controller: {str(e)}"
-    return render_template('login.html', error=error, domain_host=cfg['ldap_host'], domain_suffix=cfg['domain_suffix'])
+                    return redirect(url_for('index'))
+                else:
+                    error = "Tài khoản hoặc mật khẩu AD không chính xác."
+            except Exception as e:
+                error = f"Không kết nối được tới Domain Controller: {str(e)}"
+
+    return render_template(
+        'login.html', error=error, domains=domains,
+        selected_domain_id=(cfg['id'] if cfg else (domain_id or None)),
+        domain_host=(cfg['ldap_host'] if cfg else None),
+        domain_suffix=(cfg['domain_suffix'] if cfg else None),
+    )
 
 
 @app.route('/logout')
@@ -771,6 +869,10 @@ def logout():
     if 'user' in session:
         write_log(session['user'], 'LOGOUT')
     session.clear()
+    # Nút "Đổi Domain" ở sidebar gọi /logout?next=connect_domain để quay thẳng về màn hình
+    # danh sách domain (chọn domain khác) thay vì màn hình login của domain vừa thoát.
+    if request.args.get('next') == 'connect_domain':
+        return redirect(url_for('connect_domain'))
     return redirect(url_for('login'))
 
 # ─────────────────────────────────────────────
@@ -780,7 +882,7 @@ def logout():
 @domain_required
 @login_required
 def change_password():
-    cfg = get_active_domain_config()
+    cfg = current_domain_cfg()
     message = None
     status  = None
     if request.method == 'POST':
@@ -830,13 +932,14 @@ def change_password():
 @domain_required
 @login_required
 def index():
-    cfg = get_active_domain_config()
+    cfg = current_domain_cfg()
     is_admin = session.get('is_admin', False)
     my_user  = session.get('user')
 
     ad_users, ad_groups = ([], [])
+    ad_error = None
     if is_admin:
-        ad_users, ad_groups = get_ad_users_and_groups(cfg)
+        ad_users, ad_groups, ad_error = get_ad_users_and_groups(cfg)
         # Áp dụng bộ lọc OU (nếu admin đã cấu hình) — không chọn OU nào = hiển thị tất cả
         users_ou_filter = get_ou_filter('users')
         if users_ou_filter:
@@ -895,6 +998,7 @@ def index():
         'index.html',
         ad_users=ad_users,
         ad_groups=ad_groups,
+        ad_error=ad_error,
         software_list=software_list,
         assigned_list=assigned_list,
         audit_rows=audit_rows,
@@ -916,7 +1020,7 @@ def create_user():
     domain_id = request.form.get('domain_id', '').strip()
     # Nếu admin có chọn domain cụ thể (hỗ trợ nhiều domain, vd .local nội bộ và .vn Azure/O365)
     # thì dùng đúng domain đó; nếu không chọn thì fallback về domain đang active như trước.
-    cfg = get_domain_config_by_id(domain_id) if domain_id else get_active_domain_config()
+    cfg = get_domain_config_by_id(domain_id) if domain_id else current_domain_cfg()
     if not cfg:
         return jsonify({"status": "error", "message": "Domain đã chọn không hợp lệ hoặc không còn tồn tại. Vui lòng chọn lại domain."})
 
@@ -970,7 +1074,7 @@ def create_user():
 @domain_required
 @admin_required
 def create_group():
-    cfg        = get_active_domain_config()
+    cfg        = current_domain_cfg()
     group_name = request.form.get('group_name', '').strip()
     group_scope = request.form.get('group_scope', 'Global')   # Global/Universal/DomainLocal
     group_type  = request.form.get('group_type', 'Security')  # Security/Distribution
@@ -1013,7 +1117,7 @@ def create_group():
 @domain_required
 @admin_required
 def edit_user_ad():
-    cfg          = get_active_domain_config()
+    cfg          = current_domain_cfg()
     username     = request.form.get('edit_username', '').strip()
     new_sam      = request.form.get('edit_new_sam', '').strip()
     display_name = request.form.get('edit_display_name', '').strip()
@@ -1112,7 +1216,7 @@ def edit_user_ad():
 def save_software_inventory():
     # Xác thực mật khẩu admin trước khi lưu
     admin_pass = request.form.get('admin_pass', '').strip()
-    cfg        = get_active_domain_config()
+    cfg        = current_domain_cfg()
     if not admin_pass or admin_pass != cfg['ssh_pass']:
         return "<script>alert('Mật khẩu Administrator không chính xác!');history.back();</script>", 403
 
@@ -1156,7 +1260,7 @@ def save_software_inventory():
 @domain_required
 @admin_required
 def delete_software(row_id):
-    cfg        = get_active_domain_config()
+    cfg        = current_domain_cfg()
     data       = request.get_json()
     input_pass = data.get('admin_pass')
     correct    = cfg['ssh_pass']
@@ -1322,13 +1426,16 @@ def api_log_handover():
 @domain_required
 @login_required
 def api_cache_status():
-    """Trả về trạng thái cache AD — dùng để biết khi nào data sẵn sàng."""
-    age = time.time() - _AD_CACHE['ts'] if _AD_CACHE['ts'] else None
-    ready = (_AD_CACHE['users'] is not None and age is not None and age < _AD_CACHE_TTL)
+    """Trả về trạng thái cache AD của domain thuộc session hiện tại — dùng để biết khi nào
+    data sẵn sàng."""
+    cfg = current_domain_cfg()
+    entry = _AD_CACHE.get(cfg.get('ssh_host')) if cfg else None
+    age = (time.time() - entry['ts']) if entry else None
+    ready = bool(entry and entry.get('users') is not None and age is not None and age < _AD_CACHE_TTL)
     return jsonify({
         "ready": ready,
-        "user_count": len(_AD_CACHE['users']) if _AD_CACHE['users'] else 0,
-        "group_count": len(_AD_CACHE['groups']) if _AD_CACHE['groups'] else 0,
+        "user_count": len(entry['users']) if entry and entry.get('users') else 0,
+        "group_count": len(entry['groups']) if entry and entry.get('groups') else 0,
         "cache_age_sec": round(age, 1) if age else None,
     })
 
@@ -1337,7 +1444,7 @@ def api_cache_status():
 @login_required
 def api_refresh_cache():
     """Force refresh AD cache trong background."""
-    cfg = get_active_domain_config()
+    cfg = current_domain_cfg()
     import threading
     threading.Thread(target=get_ad_users_and_groups, args=(cfg, True), daemon=True).start()
     return jsonify({"status": "refreshing"})
@@ -1364,7 +1471,7 @@ def api_user_licenses(username):
 @domain_required
 @admin_required
 def export_users_csv():
-    cfg = get_active_domain_config()
+    cfg = current_domain_cfg()
     ps_cmd = (
         "Get-ADUser -Filter * -Properties MemberOf,Enabled | "
         "Select-Object SamAccountName,Name,Enabled,"
@@ -1397,7 +1504,7 @@ def export_users_csv():
 @domain_required
 @admin_required
 def api_group_members(group_name):
-    cfg    = get_active_domain_config()
+    cfg    = current_domain_cfg()
     ps_cmd = (
         f"Get-ADGroupMember -Identity '{ps_quote(group_name)}' | "
         f"Select-Object SamAccountName, Name | "
@@ -1421,7 +1528,7 @@ def api_group_members(group_name):
 @admin_required
 def api_get_upn_suffixes():
     domain_id = request.args.get('domain_id', '').strip()
-    cfg = get_domain_config_by_id(domain_id) if domain_id else get_active_domain_config()
+    cfg = get_domain_config_by_id(domain_id) if domain_id else current_domain_cfg()
     if not cfg:
         return jsonify({"suffixes": []})
     return jsonify({"suffixes": get_upn_suffixes(cfg)})
@@ -1434,12 +1541,22 @@ def api_get_domains():
     (hỗ trợ trường hợp công ty có nhiều domain, vd .local nội bộ và .vn Azure/O365)."""
     return jsonify({"domains": list_domain_configs()})
 
+@app.route('/api/active-domains')
+@domain_required
+@login_required
+def api_get_active_domains():
+    """Danh sách domain ĐANG active (đã kết nối, sẵn sàng đăng nhập) — dùng cho popup
+    'Chuyển Domain Nhanh' ở sidebar. Khác với /api/domains (toàn bộ lịch sử, chỉ admin xem
+    được), route này cho MỌI user đã đăng nhập xem, vì chỉ là danh sách để chọn domain khác
+    đăng nhập vào, không phải dữ liệu quản trị nhạy cảm."""
+    return jsonify({"domains": list_active_domain_configs()})
+
 @app.route('/api/groups')
 @domain_required
 @admin_required
 def api_get_groups():
     domain_id = request.args.get('domain_id', '').strip()
-    cfg = get_domain_config_by_id(domain_id) if domain_id else get_active_domain_config()
+    cfg = get_domain_config_by_id(domain_id) if domain_id else current_domain_cfg()
     ps_cmd = (
         "Get-ADGroup -Filter * -Properties DistinguishedName | "
         "Where-Object { $_.DistinguishedName -notmatch 'CN=Builtin' -and "
@@ -1463,7 +1580,7 @@ def api_get_groups():
 @admin_required
 def api_get_ous():
     domain_id = request.args.get('domain_id', '').strip()
-    cfg = get_domain_config_by_id(domain_id) if domain_id else get_active_domain_config()
+    cfg = get_domain_config_by_id(domain_id) if domain_id else current_domain_cfg()
     # Ngoài các OU thật, bổ sung container mặc định "Computers" (CN=Computers,...) —
     # đây là nơi các máy mới join domain tự động rơi vào (không phải OU nên
     # Get-ADOrganizationalUnit không trả về), lấy qua (Get-ADDomain).ComputersContainer
@@ -1526,7 +1643,7 @@ def api_save_ou_filter(section):
 @domain_required
 @admin_required
 def api_move_domain_computer():
-    cfg = get_active_domain_config()
+    cfg = current_domain_cfg()
     data = request.get_json() or {}
     dn      = (data.get('dn') or '').strip()
     new_ou  = (data.get('new_ou') or '').strip()
@@ -1718,7 +1835,7 @@ def api_delete_computer(cid):
 @domain_required
 @admin_required
 def api_domain_computers():
-    cfg = get_active_domain_config()
+    cfg = current_domain_cfg()
     ps  = ("Get-ADComputer -Filter * -Properties OperatingSystem,DistinguishedName | "
            "Select-Object Name,OperatingSystem,DistinguishedName | "
            "Sort-Object Name | ConvertTo-Json -Compress")
@@ -1749,7 +1866,7 @@ def api_delete_domain_computer():
     if not dn:
         return jsonify({"status":"error","message":"Thiếu Distinguished Name của máy cần xóa"})
 
-    cfg = get_active_domain_config()
+    cfg = current_domain_cfg()
     ps = f"Remove-ADComputer -Identity '{ps_quote(dn)}' -Confirm:$false"
     out, err, ec = run_powershell_ssh(ps, cfg, return_stderr=True)
 
@@ -1964,7 +2081,7 @@ def api_unassign_computer():
 @domain_required
 @admin_required
 def api_remove_user_group():
-    cfg      = get_active_domain_config()
+    cfg      = current_domain_cfg()
     data     = request.get_json()
     username = data.get('username')
     group    = data.get('group')
@@ -1980,7 +2097,7 @@ def api_remove_user_group():
 @domain_required
 @admin_required
 def api_test_ssh():
-    cfg  = get_active_domain_config()
+    cfg  = current_domain_cfg()
     data = request.get_json()
     cmd  = data.get('cmd', 'Get-Date')
     out, err, exitcode = run_powershell_ssh(cmd, cfg, return_stderr=True)
@@ -2000,7 +2117,7 @@ def api_test_ssh():
 @domain_required
 @admin_required
 def api_add_user_group():
-    cfg      = get_active_domain_config()
+    cfg      = current_domain_cfg()
     data     = request.get_json()
     username = data.get('username')
     group    = data.get('group')

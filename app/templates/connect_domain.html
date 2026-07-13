@@ -231,6 +231,50 @@ body::after {
 }
 .btn-secondary:hover { background: var(--bg); }
 
+.domain-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+.domain-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+}
+.domain-item-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.domain-item-name { font-size: 13px; font-weight: 700; color: var(--text); }
+.domain-item-host { font-size: 11px; color: var(--text-soft); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.domain-item-disconnect {
+    flex-shrink: 0;
+    padding: 6px 10px;
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+}
+.domain-item-disconnect:hover { background: var(--danger-bg); }
+.domain-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.domain-item-enter {
+    padding: 6px 10px;
+    background: var(--azure);
+    color: white;
+    border: 1px solid var(--azure);
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+}
+.domain-item-enter:hover { background: var(--azure-dark); }
+
 .shell-footer {
     text-align: center;
     font-size: 11px;
@@ -263,18 +307,24 @@ body::after {
         <div class="alert alert-danger">⚠ {{ error }}</div>
         {% endif %}
 
-        {% if cfg %}
-        <div class="connected-banner">
-            <strong>✓ Đang kết nối tới domain</strong>
-            Host: <code>{{ cfg.ldap_host }}</code> &nbsp;|&nbsp; Domain: <code>{{ cfg.domain_suffix }}</code>
+        {% if domains %}
+        <div class="section-label" style="margin-top:0;">domain đang khả dụng ({{ domains|length }})</div>
+        <div class="domain-list">
+            {% for d in domains %}
+            <div class="domain-item">
+                <div class="domain-item-info">
+                    <div class="domain-item-name">{{ d.domain_suffix.lstrip('@').upper() }}</div>
+                    <div class="domain-item-host">{{ d.ldap_host }}</div>
+                </div>
+                <div class="domain-item-actions">
+                    <a href="/login?domain_id={{ d.id }}" class="domain-item-enter">→ Vào</a>
+                    <button type="button" class="domain-item-disconnect" onclick="disconnectDomain('{{ d.id }}', '{{ d.domain_suffix }}')">🔌 Ngắt</button>
+                </div>
+            </div>
+            {% endfor %}
         </div>
-        <form method="POST" action="/disconnect-domain">
-            <button type="submit" class="btn-secondary" style="color:var(--danger); border-color:var(--danger);"
-                    onclick="return confirm('Bạn chắc chắn muốn truy cập domain hiện tại?');">
-                🔌 Domain Hiện Tại
-            </button>
-        </form>
-        <div class="section-label" style="margin-top:24px;">kết nối domain khác</div>
+        <div class="form-hint" style="margin-bottom:14px;">"Vào" để đăng nhập vào domain đó — "Ngắt" để xoá hẳn domain khỏi danh sách (không ai dùng được nữa cho tới khi kết nối lại).</div>
+        <div class="section-label">thêm domain mới</div>
         {% endif %}
 
         <form method="POST" action="/connect-domain">
@@ -282,14 +332,14 @@ body::after {
             <div class="form-group full">
                 <label>Địa chỉ Active Directory (IP / Hostname)</label>
                 <input type="text" name="ldap_host" placeholder="vd: 192.168.99.84" required
-                       value="{{ cfg.ldap_host if cfg else '' }}" autofocus>
+                       value="" autofocus>
             </div>
 
             <div class="form-grid">
                 <div class="form-group">
                     <label>Tài khoản</label>
                     <input type="text" name="admin_user" placeholder="vd: Administrator" required
-                           value="{{ cfg.ssh_user if cfg else 'Administrator' }}">
+                           value="Administrator">
                 </div>
                 <div class="form-group">
                     <label>Mật khẩu</label>
@@ -305,7 +355,10 @@ body::after {
 
     </div>
 
-    <div class="shell-footer">AIT Infrastructure Automation Platform &copy; 2026 by NguyenLong</div>
+    <div class="shell-footer">
+        AIT Infrastructure Automation Platform &copy; 2026 by NguyenLong
+        {% if domains %}<br><a href="/login" style="color:var(--azure); text-decoration:none; font-weight:600;">← Quay lại Đăng Nhập</a>{% endif %}
+    </div>
 </div>
 
 <script>
@@ -322,6 +375,27 @@ function toggleTheme() {
         localStorage.setItem('pv_theme', 'dark');
         btn.textContent = '☀️';
     }
+}
+
+// Ngắt 1 domain khỏi danh sách — dùng fetch() thay vì submit form trần, vì backend trả về
+// JSON (status/redirect) chứ không phải 1 trang HTML, submit trần sẽ hiện nguyên JSON ra
+// màn hình thay vì làm gì cả.
+function disconnectDomain(domainId, domainSuffix) {
+    if (!confirm('Ngắt hẳn domain \'' + domainSuffix + '\' khỏi danh sách? Sẽ không ai đăng nhập được vào domain này nữa cho tới khi kết nối lại.')) {
+        return;
+    }
+    const fd = new FormData();
+    fd.append('domain_id', domainId);
+    fetch('/disconnect-domain', { method: 'POST', body: fd })
+        .then(r => r.json().then(d => ({ ok: r.ok, data: d })).catch(() => ({ ok: r.ok, data: null })))
+        .then(({ ok, data }) => {
+            if (ok && data && data.status === 'success') {
+                window.location.reload();
+            } else {
+                alert((data && data.message) || 'Ngắt domain thất bại, vui lòng thử lại.');
+            }
+        })
+        .catch(() => alert('Có lỗi xảy ra, vui lòng thử lại.'));
 }
 window.onload = function() {
     const t = localStorage.getItem('pv_theme');
