@@ -36,7 +36,7 @@
             <h1>{{ domain_info.domain_suffix.lstrip("@").upper() if domain_info else "PV" }}</h1>
             <p>Infrastructure Portal</p>
         </div>
-        {% if domain_info %}
+        {% if domain_info and session.get('is_admin') %}
         <button class="brand-exit-btn" title="Thoát Domain" onclick="confirmDisconnectDomain()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
         </button>
@@ -356,6 +356,7 @@
         </div>
 
         <!-- KPI CARDS -->
+        {% if session.get('is_admin') %}
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-card-inner">
@@ -406,6 +407,34 @@
                 <div class="stat-accent" style="background:linear-gradient(90deg,var(--warning),#fbbf24);"></div>
             </div>
         </div>
+        {% else %}
+        <div class="stats-grid" style="grid-template-columns:repeat(2,1fr);">
+            <div class="stat-card">
+                <div class="stat-card-inner">
+                    <div class="stat-meta">
+                        <div class="stat-label">Computer Của Bạn</div>
+                        <div class="stat-value">{{ my_computers|length }}</div>
+                    </div>
+                    <div class="stat-icon blue">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                    </div>
+                </div>
+                <div class="stat-accent"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-inner">
+                    <div class="stat-meta">
+                        <div class="stat-label">License Của Bạn</div>
+                        <div class="stat-value">{{ my_licenses|length }}</div>
+                    </div>
+                    <div class="stat-icon amber">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                    </div>
+                </div>
+                <div class="stat-accent" style="background:linear-gradient(90deg,var(--warning),#fbbf24);"></div>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- ADMIN ACTION PANELS (dạng modal popup, giống Thêm Máy Tính) -->
         {% if session.get('is_admin') %}
@@ -553,6 +582,7 @@
         </div>
         {% endif %}
 
+        {% if session.get('is_admin') %}
         <!-- AD USERS TABLE -->
         <div class="content-card" style="margin-bottom:12px;">
             <div class="card-header">
@@ -725,6 +755,78 @@
                 </table>
             </div>
         </div>
+        {% endif %}
+
+        {% if not session.get('is_admin') %}
+        <!-- USER THƯỜNG: chỉ thấy computer + license được cấp cho chính mình -->
+        <div class="content-card" style="margin-bottom:12px;">
+            <div class="card-header">
+                <div class="card-title-block">
+                    <div class="card-title">Computer Của Bạn</div>
+                    <div class="card-subtitle">Thiết bị đang được cấp cho tài khoản của bạn</div>
+                </div>
+            </div>
+            <div class="table-container">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th>Tên Máy</th>
+                            <th>Loại Thiết Bị</th>
+                            <th>Hãng / Model</th>
+                            <th>CPU</th>
+                            <th>RAM</th>
+                            <th>Trạng Thái</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in my_computers %}
+                        <tr>
+                            <td><strong>{{ c[1] }}</strong></td>
+                            <td>{{ c[6] or '' }}</td>
+                            <td>{{ (c[7] or '') ~ ' ' ~ (c[8] or '') }}</td>
+                            <td>{{ c[2] or '' }}</td>
+                            <td>{{ c[3] or '' }}</td>
+                            <td>{{ c[4] or '' }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:20px;">Bạn chưa được cấp computer nào</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="content-card" style="margin-bottom:12px;">
+            <div class="card-header">
+                <div class="card-title-block">
+                    <div class="card-title">License Của Bạn</div>
+                    <div class="card-subtitle">Phần mềm đang được cấp phép cho tài khoản của bạn</div>
+                </div>
+            </div>
+            <div class="table-container">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th>Phần Mềm / License Key</th>
+                            <th>Số Lượng</th>
+                            <th>Thời Gian Cấp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for l in my_licenses %}
+                        <tr>
+                            <td><code>{{ l[0] }}</code></td>
+                            <td><span class="badge badge-info">{{ l[1] }}</span></td>
+                            <td style="color:var(--text-soft);font-size:12px;">{{ l[2].strftime('%d/%m/%Y %H:%M') if l[2] else '' }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:20px;">Bạn chưa được cấp license nào</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
 
     </div><!-- /section-dashboard -->
 
@@ -1848,7 +1950,19 @@ function euSaveAll() {
 function confirmDisconnectDomain() {
     if (confirm('Bạn chắc chắn muốn thoát khỏi domain hiện tại?\nToàn bộ session sẽ bị đăng xuất và cần kết nối lại domain để tiếp tục sử dụng.')) {
         showLoading();
-        document.getElementById('disconnectDomainForm').submit();
+        const form = document.getElementById('disconnectDomainForm');
+        const fd = new FormData(form);
+        fetch('/disconnect-domain', { method: 'POST', body: fd })
+            .then(r => r.json().then(d => ({ ok: r.ok, data: d })).catch(() => ({ ok: r.ok, data: null })))
+            .then(({ ok, data }) => {
+                hideLoading();
+                if (ok && data && data.status === 'success') {
+                    window.location.href = data.redirect || '/connect-domain';
+                } else {
+                    alert((data && data.message) || 'Bạn không có quyền thực hiện thao tác này (yêu cầu quyền Domain Admins).');
+                }
+            })
+            .catch(() => { hideLoading(); alert('Có lỗi xảy ra, vui lòng thử lại.'); });
     }
 }
 

@@ -558,11 +558,19 @@ def filter_by_ou(items: list, selected_ous: list, dn_key):
 # ─────────────────────────────────────────────
 #  Auth decorators
 # ─────────────────────────────────────────────
+def _is_ajax_request():
+    """Nhận diện request gọi qua fetch()/JS (mọi fetch cùng origin trong index.html đều tự
+    gắn header X-CSRF-Token) để trả lỗi dạng JSON đẹp thay vì text trần (hiện ra như 1 trang
+    trắng tinh nếu bị load thẳng bằng form submit/điều hướng trình duyệt)."""
+    return bool(request.headers.get('X-CSRF-Token')) or 'application/json' in (request.headers.get('Accept') or '')
+
 def login_required(f):
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'user' not in session:
+            if _is_ajax_request():
+                return jsonify({"status": "error", "message": "Phiên đăng nhập đã hết hạn, vui lòng tải lại trang và đăng nhập lại."}), 401
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated
@@ -572,9 +580,14 @@ def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'user' not in session:
+            if _is_ajax_request():
+                return jsonify({"status": "error", "message": "Phiên đăng nhập đã hết hạn, vui lòng tải lại trang và đăng nhập lại."}), 401
             return redirect(url_for('login'))
         if not session.get('is_admin', False):
-            return "Không có quyền truy cập (Yêu cầu Domain Admins).", 403
+            message = "Bạn không có quyền thực hiện thao tác này (yêu cầu quyền Domain Admins)."
+            if _is_ajax_request():
+                return jsonify({"status": "error", "message": message}), 403
+            return message, 403
         return f(*args, **kwargs)
     return decorated
 
@@ -687,7 +700,7 @@ def disconnect_domain():
     if deactivate_domain_config():
         write_log(actor, 'DISCONNECT_DOMAIN', target=cfg['ldap_host'] if cfg else None)
     session.clear()
-    return redirect(url_for('connect_domain'))
+    return jsonify({"status": "success", "redirect": url_for('connect_domain')})
 
 # ─────────────────────────────────────────────
 #  Login / Logout
@@ -816,37 +829,60 @@ def change_password():
 @login_required
 def index():
     cfg = get_active_domain_config()
-    ad_users, ad_groups = get_ad_users_and_groups(cfg)
+    is_admin = session.get('is_admin', False)
+    my_user  = session.get('user')
 
-    # Áp dụng bộ lọc OU (nếu admin đã cấu hình) — không chọn OU nào = hiển thị tất cả
-    users_ou_filter = get_ou_filter('users')
-    if users_ou_filter:
-        ad_users = filter_by_ou(ad_users, users_ou_filter, lambda u: u.get('DistinguishedName', ''))
+    ad_users, ad_groups = ([], [])
+    if is_admin:
+        ad_users, ad_groups = get_ad_users_and_groups(cfg)
+        # Áp dụng bộ lọc OU (nếu admin đã cấu hình) — không chọn OU nào = hiển thị tất cả
+        users_ou_filter = get_ou_filter('users')
+        if users_ou_filter:
+            ad_users = filter_by_ou(ad_users, users_ou_filter, lambda u: u.get('DistinguishedName', ''))
 
     software_list = []
     assigned_list = []
     audit_rows    = []
+    my_computers  = []
+    my_licenses   = []
     conn = get_db_connection()
     cur  = conn.cursor()
     try:
-        cur.execute("""
-            SELECT id, software_key, software_name, total_licenses, used_licenses,
-                   (total_licenses - used_licenses) AS available_licenses
-            FROM software_inventory ORDER BY id DESC
-        """)
-        software_list = cur.fetchall()
+        if is_admin:
+            cur.execute("""
+                SELECT id, software_key, software_name, total_licenses, used_licenses,
+                       (total_licenses - used_licenses) AS available_licenses
+                FROM software_inventory ORDER BY id DESC
+            """)
+            software_list = cur.fetchall()
 
-        cur.execute("""
-            SELECT us.id, us.sam_account_name, us.software_key, COALESCE(us.quantity,1), us.assigned_at
-            FROM user_software us ORDER BY us.id DESC
-        """)
-        assigned_list = cur.fetchall()
+            cur.execute("""
+                SELECT us.id, us.sam_account_name, us.software_key, COALESCE(us.quantity,1), us.assigned_at
+                FROM user_software us ORDER BY us.id DESC
+            """)
+            assigned_list = cur.fetchall()
 
-        cur.execute("""
-            SELECT id, ts, actor, action, target, detail, ip_address
-            FROM audit_log ORDER BY id DESC LIMIT 200
-        """)
-        audit_rows = cur.fetchall()
+            cur.execute("""
+                SELECT id, ts, actor, action, target, detail, ip_address
+                FROM audit_log ORDER BY id DESC LIMIT 200
+            """)
+            audit_rows = cur.fetchall()
+        else:
+            # User thường: CHỈ lấy đúng computer/license của chính họ — không đụng tới
+            # dữ liệu của người khác hay danh sách AD user/group toàn công ty.
+            cur.execute("""
+                SELECT c.id, c.computer_name, c.cpu, c.ram, c.status, c.asset_code,
+                       c.device_type, c.brand, c.model, c.ssd, c.hdd, c.bitlocker, c.location
+                FROM user_computers uc JOIN computers c ON c.id = uc.computer_id
+                WHERE uc.sam_account_name = %s ORDER BY c.id DESC
+            """, (my_user,))
+            my_computers = cur.fetchall()
+
+            cur.execute("""
+                SELECT us.software_key, COALESCE(us.quantity,1), us.assigned_at
+                FROM user_software us WHERE us.sam_account_name = %s ORDER BY us.id DESC
+            """, (my_user,))
+            my_licenses = cur.fetchall()
     except Exception as e:
         print(f"DB Fetch Error: {e}")
     finally:
@@ -860,6 +896,8 @@ def index():
         software_list=software_list,
         assigned_list=assigned_list,
         audit_rows=audit_rows,
+        my_computers=my_computers,
+        my_licenses=my_licenses,
         domain_info=cfg
     )
 
@@ -1303,10 +1341,12 @@ def api_refresh_cache():
     return jsonify({"status": "refreshing"})
 
 @app.route('/api/user-licenses/<username>')
-
 @domain_required
-@admin_required
+@login_required
 def api_user_licenses(username):
+    # Chỉ admin mới được xem license của người khác; user thường chỉ xem được của chính mình.
+    if not session.get('is_admin', False) and username != session.get('user'):
+        return jsonify({"status": "error", "message": "Bạn không có quyền xem license của tài khoản khác."}), 403
     conn = get_db_connection()
     cur  = conn.cursor()
     cur.execute("SELECT software_key, quantity FROM user_software WHERE sam_account_name=%s", (username,))
@@ -1353,7 +1393,7 @@ def export_users_csv():
 # ─────────────────────────────────────────────
 @app.route('/api/group-members/<group_name>')
 @domain_required
-@login_required
+@admin_required
 def api_group_members(group_name):
     cfg    = get_active_domain_config()
     ps_cmd = (
@@ -1376,7 +1416,7 @@ def api_group_members(group_name):
 # ─────────────────────────────────────────────
 @app.route('/api/upn-suffixes')
 @domain_required
-@login_required
+@admin_required
 def api_get_upn_suffixes():
     domain_id = request.args.get('domain_id', '').strip()
     cfg = get_domain_config_by_id(domain_id) if domain_id else get_active_domain_config()
@@ -1386,7 +1426,7 @@ def api_get_upn_suffixes():
 
 @app.route('/api/domains')
 @domain_required
-@login_required
+@admin_required
 def api_get_domains():
     """Danh sách các domain đã từng kết nối — dùng cho dropdown chọn domain lúc tạo user
     (hỗ trợ trường hợp công ty có nhiều domain, vd .local nội bộ và .vn Azure/O365)."""
@@ -1394,7 +1434,7 @@ def api_get_domains():
 
 @app.route('/api/groups')
 @domain_required
-@login_required
+@admin_required
 def api_get_groups():
     domain_id = request.args.get('domain_id', '').strip()
     cfg = get_domain_config_by_id(domain_id) if domain_id else get_active_domain_config()
@@ -1418,7 +1458,7 @@ def api_get_groups():
 # ─────────────────────────────────────────────
 @app.route('/api/ous')
 @domain_required
-@login_required
+@admin_required
 def api_get_ous():
     domain_id = request.args.get('domain_id', '').strip()
     cfg = get_domain_config_by_id(domain_id) if domain_id else get_active_domain_config()
@@ -1451,7 +1491,7 @@ def api_get_ous():
 # ─────────────────────────────────────────────
 @app.route('/api/ou-filter/<section>', methods=['GET'])
 @domain_required
-@login_required
+@admin_required
 def api_get_ou_filter(section):
     if section not in _OU_FILTER_SECTIONS:
         return jsonify({"status": "error", "message": "Khu vực không hợp lệ"}), 400
@@ -1513,7 +1553,7 @@ def api_move_domain_computer():
 # ─────────────────────────────────────────────
 @app.route('/api/computers', methods=['GET'])
 @domain_required
-@login_required
+@admin_required
 def api_get_computers():
     conn = get_db_connection(); cur = conn.cursor()
     try:
@@ -1834,6 +1874,9 @@ def api_import_computers():
 @domain_required
 @login_required
 def api_get_user_computers(username):
+    # Chỉ admin mới được xem computer của người khác; user thường chỉ xem được của chính mình.
+    if not session.get('is_admin', False) and username != session.get('user'):
+        return jsonify({"status": "error", "message": "Bạn không có quyền xem computer của tài khoản khác."}), 403
     conn = get_db_connection(); cur = conn.cursor()
     try:
         cur.execute("""
