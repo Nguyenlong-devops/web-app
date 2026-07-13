@@ -451,6 +451,27 @@ def ps_quote(value) -> str:
 # ─────────────────────────────────────────────
 #  SSH / PowerShell — dùng config domain hiện tại
 # ─────────────────────────────────────────────
+def test_ssh_connectivity(host, user, password, timeout=8):
+    """Test nhanh xem có SSH được vào Domain Controller không (dùng đúng credential vừa nhập
+    ở bước Connect Domain). LDAP bind thành công KHÔNG có nghĩa SSH cũng thông — đây là 2 dịch
+    vụ hoàn toàn khác nhau, khác cổng (389 vs 22). Nếu không test ở bước này, domain vẫn 'kết
+    nối' được (vì login chỉ cần LDAP) nhưng toàn bộ tính năng Users/Groups/OU/Computer (chạy
+    qua SSH+PowerShell) sẽ timeout âm thầm về sau — rất khó debug nếu không chặn ngay từ đầu."""
+    try:
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(hostname=host, username=user, password=password,
+                    timeout=timeout, look_for_keys=False, allow_agent=False)
+        ssh.close()
+        return True, None
+    except paramiko.AuthenticationException:
+        return False, "sai tài khoản/mật khẩu SSH (khác với LDAP dù dùng chung Administrator)"
+    except Exception as e:
+        err_str = str(e).lower()
+        if 'timed out' in err_str or 'timeout' in err_str:
+            return False, "timed out — SSH (OpenSSH Server) có thể chưa chạy hoặc firewall chưa mở port 22 trên Domain Controller này"
+        return False, str(e)
+
 def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
     if cfg is None:
         cfg = get_active_domain_config()
@@ -728,21 +749,32 @@ def connect_domain():
                     conn.unbind()
                     admin_group_dn = f"CN=Domain Admins,CN=Users,{base_dn}"
 
-                    new_cfg = {
-                        'ldap_host': ldap_host,
-                        'domain_suffix': domain_suffix,
-                        'base_dn': base_dn,
-                        'admin_group_dn': admin_group_dn,
-                        'ssh_host': ldap_host,
-                        'ssh_user': admin_user,
-                        'ssh_pass': admin_pass,
-                    }
-                    if save_domain_config(new_cfg):
-                        write_log(admin_user, 'CONNECT_DOMAIN',
-                                  target=ldap_host, detail=f"domain_suffix={domain_suffix}, base_dn={base_dn} (auto-detected)")
-                        return redirect(url_for('login'))
+                    # LDAP OK không có nghĩa SSH cũng OK — test luôn ở đây để phát hiện ngay lúc
+                    # kết nối, thay vì để domain "kết nối được" xong Users/Groups/OU timeout âm
+                    # thầm về sau (đúng tình huống domain thứ 2 gặp phải).
+                    ssh_ok, ssh_err = test_ssh_connectivity(ldap_host, admin_user, admin_pass)
+                    if not ssh_ok:
+                        error = (f"Đăng nhập LDAP thành công nhưng KHÔNG SSH được tới '{ldap_host}': {ssh_err}. "
+                                 f"Toàn bộ tính năng Users/Groups/OU/Computer cần SSH (OpenSSH Server) chạy "
+                                 f"trên Domain Controller này. Trên DC, kiểm tra bằng PowerShell: "
+                                 f"Get-Service sshd (phải Running), và New-NetFirewallRule cho phép inbound "
+                                 f"TCP port 22 nếu chưa có.")
                     else:
-                        error = "Lưu cấu hình domain thất bại (DB error)."
+                        new_cfg = {
+                            'ldap_host': ldap_host,
+                            'domain_suffix': domain_suffix,
+                            'base_dn': base_dn,
+                            'admin_group_dn': admin_group_dn,
+                            'ssh_host': ldap_host,
+                            'ssh_user': admin_user,
+                            'ssh_pass': admin_pass,
+                        }
+                        if save_domain_config(new_cfg):
+                            write_log(admin_user, 'CONNECT_DOMAIN',
+                                      target=ldap_host, detail=f"domain_suffix={domain_suffix}, base_dn={base_dn} (auto-detected)")
+                            return redirect(url_for('login'))
+                        else:
+                            error = "Lưu cấu hình domain thất bại (DB error)."
                 else:
                     error = "Không thể đăng nhập với tài khoản đã nhập. Vui lòng kiểm tra lại username/password."
         except Exception as e:
@@ -966,6 +998,17 @@ def index():
                 FROM user_software us ORDER BY us.id DESC
             """)
             assigned_list = cur.fetchall()
+
+            # Chỉ hiển thị "License Assignment History" cho user thuộc DOMAIN ĐANG ĐĂNG NHẬP —
+            # kho license (software_list) phía trên vẫn giữ nguyên dùng chung toàn hệ thống,
+            # không lọc gì cả (đúng ý: gán cho user domain nào thì hiện theo domain đó, còn kho
+            # là chung). sam_account_name không tự mang thông tin domain, nên lọc bằng cách đối
+            # chiếu với danh sách user thật của domain hiện tại (ad_users vừa lấy ở trên).
+            # Nếu ad_users rỗng do lỗi tải AD (ad_error) thì bỏ qua lọc để tránh hiểu nhầm
+            # "mất lịch sử" trong lúc AD đang lỗi/timeout — chỉ lọc khi có dữ liệu domain thật.
+            if ad_users:
+                domain_usernames = {u.get('SamAccountName', '').lower() for u in ad_users if u.get('SamAccountName')}
+                assigned_list = [row for row in assigned_list if row[1] and row[1].lower() in domain_usernames]
 
             cur.execute("""
                 SELECT id, ts, actor, action, target, detail, ip_address
