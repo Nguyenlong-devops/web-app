@@ -323,22 +323,22 @@ body::after {
             </div>
             {% endfor %}
         </div>
-        <div class="form-hint" style="margin-bottom:14px;">"Vào" để đăng nhập vào domain đó — "Ngắt" để xoá hẳn domain khỏi danh sách (không ai dùng được nữa cho tới khi kết nối lại).</div>
+<!--         <div class="form-hint" style="margin-bottom:14px;">"Vào" để đăng nhập vào domain đó — "Ngắt" để xoá hẳn domain khỏi danh sách (không ai dùng được nữa cho tới khi kết nối lại).</div> -->
         <div class="section-label">thêm domain mới</div>
         {% endif %}
 
         <form method="POST" action="/connect-domain">
 
             <div class="form-group full">
-                <label>Địa chỉ Active Directory (IP / Hostname)</label>
-                <input type="text" name="ldap_host" placeholder="vd: 192.168.99.84" required
+                <label>Địa chỉ Active Directory</label>
+                <input type="text" name="ldap_host" placeholder="nhập địa chỉ IP" required
                        value="" autofocus>
             </div>
 
             <div class="form-grid">
                 <div class="form-group">
                     <label>Tài khoản</label>
-                    <input type="text" name="admin_user" placeholder="vd: Administrator" required
+                    <input type="text" name="admin_user" placeholder="Administrator" required
                            value="Administrator">
                 </div>
                 <div class="form-group">
@@ -349,7 +349,7 @@ body::after {
 
             <button type="submit" class="btn-connect">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-                Kết Nối Domain
+                Connect Domain
             </button>
         </form>
 
