@@ -1505,6 +1505,8 @@ html[data-theme="dark"] #cmp-page-subtitle { color:#c8c8c8 !important; }
     #handoverPrintArea ul { margin:4px 0;padding-left:18px; page-break-inside:avoid; }
     #handoverPrintArea tr { page-break-inside:avoid; }
     #handoverPrintArea .ho-sig-table td { height:70px;vertical-align:bottom;text-align:center; }
+    #handoverPrintArea .ho-sig-table { table-layout:fixed; }
+    #handoverPrintArea .ho-sig-table th, #handoverPrintArea .ho-sig-table td { width:50%; }
     #handoverPrintArea .ho-sig-img { max-height:60px; max-width:80%; object-fit:contain; }
     #handoverPrintArea .ho-note { white-space:pre-line;font-size:11px; }
     /* Gom mỗi mục (tiêu đề + bảng liền sau) thành 1 khối, tránh bị cắt ngang giữa trang khi in */
@@ -2858,14 +2860,22 @@ function printHandover() {
     }).join('');
     const today = new Date();
     const dateStr = `Ngày ${String(today.getDate()).padStart(2,'0')} Tháng ${String(today.getMonth()+1).padStart(2,'0')} Năm ${today.getFullYear()}`;
+    const blankDateStr = 'Ngày ...... Tháng ...... Năm ...........';
 
     const includeReturn = document.getElementById('ho_include_return')?.checked;
+    // Chỉ 1 trong 2 mốc ngày được điền sẵn = ngày in tại thời điểm này, mốc còn lại để trống
+    // cho IT điền tay sau:
+    // - Không tick "Thu hồi": đây là lần bàn giao đầu -> mục 5 (bàn giao) lấy ngày hôm nay.
+    // - Có tick "Thu hồi": đang in biên bản cho đợt thu hồi lại thiết bị -> mục 6 (thu hồi) lấy
+    //   ngày hôm nay, còn mục 5 (bàn giao, đã xảy ra từ trước, không phải hôm nay) để trống.
+    const handoverDateStr = includeReturn ? blankDateStr : dateStr;
+    const returnDateStr   = dateStr;
     const returnSectionHtml = includeReturn ? `
         <div class="ho-section">
             <h3>6. Biên bản thu hồi thiết bị</h3>
-            <p class="ho-return-hint">(Áp dụng khi thu hồi lại thiết bị — nhân viên nghỉ việc, chuyển bộ phận, hoặc đổi sang thiết bị mới. Điền tay tại thời điểm thu hồi.)</p>
+<!--             <p class="ho-return-hint">(Áp dụng khi thu hồi lại thiết bị — nhân viên nghỉ việc, chuyển bộ phận, hoặc đổi sang thiết bị mới. Điền tay tại thời điểm thu hồi.)</p> -->
             <table class="ho-sig-table">
-                <thead><tr><th style="text-align:center;">Ngày ...... Tháng ...... Năm ............<br>Nhân viên bàn giao lại thiết bị<br>(Ký, ghi rõ họ tên)</th><th style="text-align:center;">Nhân viên IT thu hồi<br>(Ký, ghi rõ họ tên)</th></tr></thead>
+                <thead><tr><th style="text-align:center;">${returnDateStr}<br>Nhân viên bàn giao lại thiết bị<br>(Ký, ghi rõ họ tên)</th><th style="text-align:center;">Nhân viên IT thu hồi<br>(Ký, ghi rõ họ tên)</th></tr></thead>
                 <tbody><tr><td></td><td><img class="ho-sig-img" src="data:image/png;base64,${IT_SIGNATURE_B64}" alt="Chữ ký IT"></td></tr></tbody>
             </table>
         </div>` : '';
@@ -2923,7 +2933,7 @@ function printHandover() {
         <div class="ho-section">
             <h3>5. Biên bản bàn giao thiết bị</h3>
             <table class="ho-sig-table">
-                <thead><tr><th style="text-align:center;">${dateStr}<br>Nhân viên nhận thiết bị<br>(Ký, ghi rõ họ tên)</th><th style="text-align:center;">Nhân viên IT bàn giao<br>(Ký, ghi rõ họ tên)</th></tr></thead>
+                <thead><tr><th style="text-align:center;">${handoverDateStr}<br>Nhân viên nhận thiết bị<br>(Ký, ghi rõ họ tên)</th><th style="text-align:center;">Nhân viên IT bàn giao<br>(Ký, ghi rõ họ tên)</th></tr></thead>
                 <tbody><tr><td></td><td><img class="ho-sig-img" src="data:image/png;base64,${IT_SIGNATURE_B64}" alt="Chữ ký IT"></td></tr></tbody>
             </table>
         </div>
