@@ -36,7 +36,7 @@
             <h1>{{ domain_info.domain_suffix.lstrip("@").upper() if domain_info else "PV" }}</h1>
             <p>Infrastructure Portal</p>
         </div>
-        {% if domain_info %}
+        {% if domain_info and session.get('is_admin') %}
         <button class="brand-switch-btn" title="Chuyển Domain Nhanh" onclick="openSwitchDomainModal()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
         </button>
@@ -82,10 +82,12 @@
         {% endif %}
 
         <div class="nav-section-label">Account</div>
+        {% if session.get('is_admin') %}
         <a href="/change-password" class="nav-item">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
             Đổi Mật Khẩu
         </a>
+        {% endif %}
 
         <div class="nav-divider"></div>
 
@@ -360,6 +362,7 @@
             </div>
         </div>
         <div class="topbar-right">
+            <span id="topbarGreeting" class="topbar-greeting" data-name="{{ session.get('display_name', session.get('user','')) }}"></span>
             <button class="topbar-btn" onclick="toggleTheme()" id="themeBtn">🌙 Theme</button>
         </div>
     </div>
@@ -1399,6 +1402,13 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
 }
 .brand-exit-btn:hover { background: rgba(220,53,69,.12); border-color: #dc3545; color: #dc3545; }
 .brand-exit-btn svg { width: 15px; height: 15px; }
+
+.topbar-greeting {
+    font-size: 13px;
+    color: var(--text-soft, #6b7280);
+    white-space: nowrap;
+}
+.topbar-greeting strong { color: var(--text, #1a1a2e); font-weight: 600; }
 .brand-switch-btn {
     flex-shrink: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
     border: 1px solid var(--border-strong); border-radius: 50%; background: transparent;
@@ -2186,7 +2196,7 @@ function _loadOuIntoSelect(selId, defaultText, domainId) {
             const opt=document.createElement('option');
             opt.value=ou.dn;
             if (ou.is_container) {
-                opt.textContent = '📦 ' + ou.name + ' (mặc định — máy mới join)';
+                opt.textContent = '📦 ' + ou.name + ' (mặc định)';
             } else {
                 const d=(ou.dn.match(/OU=/gi)||[]).length;
                 opt.textContent='  '.repeat(Math.max(0,d-1))+'📁 '+ou.name;
@@ -3083,8 +3093,30 @@ function euRemoveComputer(cid) {
 }
 
 // ─────────────────────── INIT ───────────────────────
+// ─────────────────────── LỜI CHÀO THEO GIỜ TRONG NGÀY ───────────────────────
+function setGreeting() {
+    const el = document.getElementById('topbarGreeting');
+    if (!el) return;
+    const name = (el.dataset.name || '').trim();
+    const hour = new Date().getHours();
+    let text;
+    if (hour >= 5 && hour < 11)       text = 'Chào buổi sáng';
+    else if (hour >= 11 && hour < 13) text = 'Chào buổi trưa';
+    else if (hour >= 13 && hour < 18) text = 'Chào buổi chiều';
+    else                              text = 'Chào buổi tối';
+    el.textContent = '';
+    el.appendChild(document.createTextNode('👋 ' + text));
+    if (name) {
+        el.appendChild(document.createTextNode(', '));
+        const strong = document.createElement('strong');
+        strong.textContent = name;  // textContent tự escape, an toàn kể cả tên có ký tự đặc biệt
+        el.appendChild(strong);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     hideLoading();
+    setGreeting();
     const t = localStorage.getItem('pv_theme');
     const btn = document.getElementById('themeBtn');
     if (t === 'dark') {
