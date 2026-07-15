@@ -267,6 +267,30 @@
     </div>
 </div>
 
+<div id="moveGroupModal" class="modal">
+    <div class="modal-content" style="max-width:440px;">
+        <div class="modal-header">
+            <div class="modal-title">↪ Move Group</div>
+            <button class="close-btn" onclick="closeModal('moveGroupModal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <div style="font-size:13px;margin-bottom:12px;">
+                Group: <strong id="mv_group_name" style="font-family:monospace;"></strong>
+            </div>
+            <div class="form-group">
+                <label>Chuyển đến OU</label>
+                <select id="mv_group_ou_select" style="height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                    <option value="">— Chọn OU đích —</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('moveGroupModal')">Hủy</button>
+            <button class="btn btn-primary" onclick="submitMoveGroup()">↪ Move</button>
+        </div>
+    </div>
+</div>
+
 <!-- ══════════════════ MODAL: Add/Edit Computer ══════════════════ -->
 <div id="computerModal" class="modal">
     <div class="modal-content" style="max-width:560px;">
@@ -876,9 +900,12 @@
                 <div class="page-title">Quản Lý Group</div>
                 <div class="page-subtitle">Tổng <strong>{{ ad_groups|length }}</strong> group trong domain</div>
             </div>
-            <button class="btn btn-primary" onclick="openCreateGroupModal()">
-                + Tạo Group Mới
-            </button>
+            <div style="display:flex;gap:8px;">
+                <button class="btn btn-secondary btn-sm" title="Chọn OU hiển thị cho danh sách group" onclick="openOuFilterModal('groups')">⚙ Lọc OU</button>
+                <button class="btn btn-primary" onclick="openCreateGroupModal()">
+                    + Tạo Group Mới
+                </button>
+            </div>
         </div>
 
         <div class="content-card" style="padding:12px 16px;margin-bottom:8px;">
@@ -893,7 +920,7 @@
                         <tr>
                             <th onclick="sortTable('groupTable',0)" style="cursor:pointer;user-select:none;">Tên Group <span>⇅</span></th>
                             <th onclick="sortTable('groupTable',1)" style="cursor:pointer;user-select:none;">SamAccountName <span>⇅</span></th>
-                            <th>Distinguished Name</th>
+                            <th onclick="sortTable('groupTable',2)" style="cursor:pointer;user-select:none;">OU <span>⇅</span></th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -902,11 +929,14 @@
                         <tr>
                             <td><strong>{{ g.Name }}</strong></td>
                             <td><code>{{ g.SamAccountName }}</code></td>
-                            <td style="font-size:11px;color:var(--text-muted);max-width:300px;word-break:break-all;">{{ g.DistinguishedName }}</td>
+                            <td style="font-size:12px;color:var(--text-soft);" title="{{ g.DistinguishedName }}">{{ g.DistinguishedName | dn_to_ou }}</td>
                             <td>
-                                <button class="btn btn-ghost btn-sm" onclick="openGroupMembersModal('{{ g.Name }}')">
-                                    👥 Thành viên
-                                </button>
+                                <div style="display:flex;gap:4px;flex-wrap:nowrap;">
+                                    <button class="btn btn-ghost btn-sm" style="white-space:nowrap;" onclick="openGroupMembersModal('{{ g.Name }}')">
+                                        👥 Thành viên
+                                    </button>
+                                    <button class="btn btn-secondary btn-sm" onclick="openMoveGroupModal('{{ (g.DistinguishedName or '')|replace("'", "\\'") }}','{{ (g.Name or '')|replace("'", "\\'") }}')" title="Move sang OU khác">↪</button>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}
@@ -1370,6 +1400,18 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
 </div>
 
 <style>
+/* ── Bảng "Quản Lý Group": chia đều cột thay vì tự co theo nội dung (gây dư khoảng trắng bên
+   phải khi cột Actions có nhiều nút). table-layout:fixed + width % cụ thể cho từng cột để
+   bảng luôn lấp đầy 100% chiều rộng khung chứa, cân đối giữa 4 cột. ── */
+#groupTable { table-layout: fixed; width: 100%; }
+#groupTable th:nth-child(1), #groupTable td:nth-child(1) { width: 33%; }
+#groupTable th:nth-child(2), #groupTable td:nth-child(2) { width: 20%; }
+#groupTable th:nth-child(3), #groupTable td:nth-child(3) { width: 29%; }
+#groupTable th:nth-child(4), #groupTable td:nth-child(4) { width: 18%; }
+#groupTable td:nth-child(1), #groupTable td:nth-child(2), #groupTable td:nth-child(3) {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* ── Chuyển Domain Nhanh: list dòng thay cho <select>, có chấm trạng thái ── */
 .sw-domain-list { display:flex; flex-direction:column; gap:4px; max-height:240px; overflow-y:auto; }
 .sw-domain-row {
@@ -2320,7 +2362,7 @@ function submitCreateGroup() {
 
 // ─────────────────────── LỌC OU HIỂN THỊ (Users / Computers) ───────────────────────
 let _ouFilterSection = null;
-const _OU_FILTER_LABELS = { users: '👤 Chọn OU hiển thị — Users', computers: '🖥 Chọn OU hiển thị — Computers (Domain)' };
+const _OU_FILTER_LABELS = { users: '👤 Chọn OU hiển thị — Users', computers: '🖥 Chọn OU hiển thị — Computers (Domain)', groups: '👥 Chọn OU hiển thị — Groups' };
 
 function openOuFilterModal(section) {
     _ouFilterSection = section;
@@ -2346,7 +2388,7 @@ function openOuFilterModal(section) {
             const checked = selected.has(ou.dn) ? 'checked' : '';
             const esc = ou.dn.replace(/"/g,'&quot;');
             const icon = ou.is_container ? '📦' : '📁';
-            const nameLabel = ou.is_container ? `${ou.name} <span style="color:var(--text-muted);font-weight:400;">(mặc định — máy mới join)</span>` : ou.name;
+            const nameLabel = ou.is_container ? `${ou.name} <span style="color:var(--text-muted);font-weight:400;">(mặc định)</span>` : ou.name;
             const rowStyle = ou.is_container
                 ? 'display:flex;align-items:center;gap:8px;padding:5px 6px;padding-left:6px;border-radius:4px;cursor:pointer;font-size:12.5px;background:var(--bg-secondary);border:1px dashed var(--border-strong);margin-bottom:4px;'
                 : `display:flex;align-items:center;gap:8px;padding:5px 6px;padding-left:${indent+6}px;border-radius:4px;cursor:pointer;font-size:12.5px;`;
@@ -2422,6 +2464,36 @@ function submitMoveComputer() {
             showToast(`Đã move "${name}" sang OU mới`, 'success');
             _domainComputersLoaded = false;
             loadDomainComputers();
+        } else {
+            showToast(d.message || 'Move thất bại', 'danger');
+        }
+    }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối', 'danger'); });
+}
+
+let _mvGroupDn = null;
+function openMoveGroupModal(dn, name) {
+    _mvGroupDn = dn;
+    document.getElementById('mv_group_name').textContent = name || dn;
+    _loadOuIntoSelect('mv_group_ou_select', '— Chọn OU đích —');
+    document.getElementById('moveGroupModal').classList.add('show');
+}
+
+function submitMoveGroup() {
+    const sel = document.getElementById('mv_group_ou_select');
+    const newOu = sel ? sel.value : '';
+    const name = document.getElementById('mv_group_name').textContent;
+    if (!newOu) { showToast('Vui lòng chọn OU đích', 'warning'); return; }
+    if (!_mvGroupDn) { showToast('Thiếu Distinguished Name của group', 'danger'); return; }
+    showLoading();
+    fetch('/api/move-group', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ dn: _mvGroupDn, new_ou: newOu, name })
+    }).then(r=>r.json()).then(d=>{
+        hideLoading();
+        if (d.status === 'success') {
+            closeModal('moveGroupModal');
+            showToast(`Đã move group "${name}" sang OU mới`, 'success');
+            setTimeout(() => location.reload(), 600);
         } else {
             showToast(d.message || 'Move thất bại', 'danger');
         }

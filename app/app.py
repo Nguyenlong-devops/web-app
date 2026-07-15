@@ -67,6 +67,21 @@ app.config['JSON_AS_ASCII'] = False
 def fix_jinja_encoding():
     app.jinja_env.policies['json.dumps_kwargs'] = {'ensure_ascii': False}
 
+def _dn_to_ou_path(dn: str) -> str:
+    """Rút gọn 1 DistinguishedName thành đường dẫn OU dễ đọc, bỏ phần CN đối tượng lá và
+    các DC=... — ví dụ 'CN=HANHCHINH,OU=GROUP,OU=PV,DC=pv,DC=local' -> 'PV › GROUP'.
+    Trả về tên container (vd 'Users') nếu group nằm ngay dưới container hệ thống đó."""
+    if not dn:
+        return '—'
+    parts = [p.strip() for p in dn.split(',')]
+    ou_parts = [p.split('=', 1)[1] for p in parts if p.upper().startswith('OU=')]
+    if ou_parts:
+        return ' › '.join(reversed(ou_parts))
+    container_parts = [p.split('=', 1)[1] for p in parts[1:] if p.upper().startswith('CN=')]
+    return container_parts[0] if container_parts else '—'
+
+app.jinja_env.filters['dn_to_ou'] = _dn_to_ou_path
+
 # ─────────────────────────────────────────────
 #  DB helpers
 # ─────────────────────────────────────────────
@@ -510,6 +525,15 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
                 f"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded_cmd}"
             )
             stdin, stdout, stderr = ssh.exec_command(full_command)
+            # Trước đây stdout.read()/stderr.read() KHÔNG có giới hạn thời gian — nếu PowerShell
+            # phía DC phản hồi chậm bất thường (vd lần chạy đầu sau thời gian idle dài: module
+            # ActiveDirectory phải load lại từ đầu, Windows Defender quét tiến trình powershell.exe
+            # mới, DC vừa "ngủ" cần thời gian phản ứng...), lệnh read() sẽ chờ VÔ THỜI HẠN thay vì
+            # báo lỗi — đây là nguyên nhân chính của hiện tượng "login/vào Dashboard rất lâu (30s+)
+            # sau khi không dùng một thời gian". Đặt giới hạn 45s: đủ cho truy vấn AD full user/
+            # group bình thường (kể cả domain vài nghìn user), nhưng vẫn chặn được tình huống treo
+            # vô hạn thay vì để người dùng chờ không biết đến bao giờ.
+            stdout.channel.settimeout(45)
             out      = stdout.read().decode('utf-8', errors='ignore')
             err      = stderr.read().decode('utf-8', errors='ignore')
             exitcode = stdout.channel.recv_exit_status()  # 0 = success
@@ -520,7 +544,8 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
             # dữ liệu mới nhất ngay, thay vì phải chờ hết TTL cache (không đụng tới cache của các
             # domain khác đang được admin khác dùng song song).
             _mutating_keywords = ('New-AD', 'Remove-AD', 'Set-AD', 'Add-ADGroupMember',
-                                  'Remove-ADGroupMember', 'Enable-ADAccount', 'Disable-ADAccount')
+                                  'Remove-ADGroupMember', 'Enable-ADAccount', 'Disable-ADAccount',
+                                  'Move-ADObject')
             if exitcode == 0 and any(k in command_block for k in _mutating_keywords):
                 _AD_CACHE.pop(cfg.get('ssh_host'), None)
 
@@ -547,32 +572,80 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
 #    các lượt refresh liên tiếp không phải chờ AD trả lời lại từ đầu.
 # ─────────────────────────────────────────────
 _AD_CACHE = {}  # domain_key (ssh_host) -> {'users':..., 'groups':..., 'ts':...}
-_AD_CACHE_TTL = 120  # giây — tăng từ 20s lên 120s
+_AD_CACHE_TTL = 120  # giây — sau thời gian này, dữ liệu được coi là "cũ" (nhưng vẫn dùng tạm được)
+_AD_CACHE_REFRESHING = set()  # domain_key nào đang có 1 luồng background refresh chạy dở
 
 def get_ad_users_and_groups(cfg, force_refresh=False):
     """Trả về (ad_users, ad_groups, error). `error` là None khi lấy dữ liệu thành công (kể cả
     khi AD thực sự không có user/group nào) — chỉ khác None khi việc kết nối/thực thi PowerShell
     thất bại, để phân biệt rõ "0 vì AD trống" với "0 vì không lấy được dữ liệu" (trước đây 2
-    trường hợp này hiển thị y hệt nhau — Dashboard hiện toàn số 0 mà không rõ lý do)."""
+    trường hợp này hiển thị y hệt nhau — Dashboard hiện toàn số 0 mà không rõ lý do).
+
+    CHIẾN LƯỢC CACHE (stale-while-revalidate): trước đây hễ cache hết hạn (>120s, chắc chắn xảy
+    ra sau thời gian không dùng dài) là request HIỆN TẠI phải tự chờ chạy PowerShell sống qua SSH
+    xong mới trả trang — nếu DC phản hồi chậm bất thường lần đầu (rất hay gặp sau thời gian idle
+    dài), người dùng phải đợi ngay lúc đó, đây là nguyên nhân chính gây ra hiện tượng "login/vào
+    Dashboard mất 30s+". Giờ nếu ĐÃ TỪNG có dữ liệu (dù cũ), trả về NGAY LẬP TỨC dữ liệu đó (dữ
+    liệu cũ vài phút vẫn tốt hơn nhiều so với bắt người dùng đứng chờ), đồng thời âm thầm khởi
+    một luồng nền để lấy dữ liệu mới — trang hiện tại vẫn dùng dữ liệu cũ, trang sau (vài giây
+    sau đó) sẽ tự có dữ liệu mới khi luồng nền chạy xong. Chỉ khi CHƯA TỪNG có dữ liệu nào trong
+    cache (lần đầu tiên truy cập kể từ khi app khởi động) mới thực sự phải chờ đồng bộ."""
     domain_key = cfg.get('ssh_host') if cfg else None
     now = time.time()
     entry = _AD_CACHE.get(domain_key)
-    if (not force_refresh and entry and entry.get('users') is not None
-            and now - entry.get('ts', 0) < _AD_CACHE_TTL):
+    is_stale = not entry or entry.get('users') is None or (now - entry.get('ts', 0) >= _AD_CACHE_TTL)
+
+    if not force_refresh and entry and entry.get('users') is not None:
+        if is_stale and domain_key not in _AD_CACHE_REFRESHING:
+            # Có dữ liệu cũ -> trả ngay, đồng thời âm thầm làm mới ở background cho lần sau.
+            _AD_CACHE_REFRESHING.add(domain_key)
+            import threading
+            def _bg_refresh():
+                try:
+                    _fetch_and_cache_ad_data(cfg, domain_key)
+                finally:
+                    _AD_CACHE_REFRESHING.discard(domain_key)
+            threading.Thread(target=_bg_refresh, daemon=True).start()
         return entry['users'], entry['groups'], entry.get('error')
+
+    # Chưa từng có dữ liệu (hoặc force_refresh=True) -> chờ lấy đồng bộ như trước đây.
+    return _fetch_and_cache_ad_data(cfg, domain_key)
+
+
+def _fetch_and_cache_ad_data(cfg, domain_key):
+    """Thực sự chạy PowerShell qua SSH để lấy user/group AD mới nhất, rồi lưu vào cache.
+    Tách riêng khỏi get_ad_users_and_groups() để dùng chung được cho cả đường đồng bộ (chờ
+    trực tiếp) lẫn đường background refresh (chạy trong thread riêng)."""
+    now = time.time()
 
     ad_users, ad_groups = [], []
     error = None
     if not cfg:
         error = "Chưa xác định được domain cho phiên đăng nhập này."
     else:
+        # Danh sách tên các group MẶC ĐỊNH do AD tự tạo sẵn khi dựng domain (RID 512-521 +
+        # các group hệ thống khác) — LOẠI theo TÊN cụ thể, không loại theo container CN=Users,
+        # vì admin hoàn toàn có thể tạo group thật (vd "MKT", "TCKT") ngay trong CN=Users
+        # (đây là hành vi mặc định của "New-ADGroup" khi không chỉ định -Path) — loại theo
+        # container sẽ ẩn nhầm các group đó, khiến chúng "biến mất" khỏi web dù vẫn tồn tại
+        # trên AD thật (bug đã gặp: tạo group MKT/TCKT trong CN=Users -> web không hiển thị).
+        _default_group_names = (
+            "'Domain Computers','Domain Controllers','Domain Guests','Domain Users',"
+            "'Domain Admins','Enterprise Admins','Schema Admins','Group Policy Creator Owners',"
+            "'Read-only Domain Controllers','Enterprise Read-only Domain Controllers',"
+            "'Cloneable Domain Controllers','Protected Users','Key Admins','Enterprise Key Admins',"
+            "'DnsAdmins','DnsUpdateProxy','RAS and IAS Servers',"
+            "'Allowed RODC Password Replication Group','Denied RODC Password Replication Group',"
+            "'Cert Publishers'"
+        )
         ps_cmd = (
             "$u = Get-ADUser -Filter * -Properties MemberOf | "
             "Select-Object SamAccountName, Name, Enabled, DistinguishedName, "
             "@{Name='Groups';Expression={($_.MemberOf | ForEach-Object {($_ -split ',')[0] -replace 'CN=', ''}) -join ','}}; "
+            f"$defaultNames = @({_default_group_names}); "
             "$g = Get-ADGroup -Filter * -Properties DistinguishedName | "
-            "Where-Object { $_.DistinguishedName -notmatch ',CN=Builtin,' -and "
-            "$_.DistinguishedName -notmatch ',CN=Users,DC=' } | "
+            "Where-Object { $_.Name -eq 'Administrators' -or "
+            "($_.DistinguishedName -notmatch ',CN=Builtin,' -and $_.Name -notin $defaultNames) } | "
             "Select-Object SamAccountName, Name, DistinguishedName | Sort-Object Name; "
             "@{ users = @($u); groups = @($g) } | ConvertTo-Json -Compress -Depth 6"
         )
@@ -605,7 +678,7 @@ def get_ad_users_and_groups(cfg, force_refresh=False):
 # ─────────────────────────────────────────────
 #  Bộ lọc OU hiển thị (riêng cho từng khu vực: users / computers)
 # ─────────────────────────────────────────────
-_OU_FILTER_SECTIONS = ('users', 'computers')
+_OU_FILTER_SECTIONS = ('users', 'computers', 'groups')
 
 def get_ou_filter(section: str):
     """Trả về danh sách DistinguishedName các OU đang được chọn để hiển thị
@@ -982,6 +1055,9 @@ def index():
         users_ou_filter = get_ou_filter('users')
         if users_ou_filter:
             ad_users = filter_by_ou(ad_users, users_ou_filter, lambda u: u.get('DistinguishedName', ''))
+        groups_ou_filter = get_ou_filter('groups')
+        if groups_ou_filter:
+            ad_groups = filter_by_ou(ad_groups, groups_ou_filter, lambda g: g.get('DistinguishedName', ''))
 
     software_list = []
     assigned_list = []
@@ -1606,10 +1682,22 @@ def api_get_active_domains():
 def api_get_groups():
     domain_id = request.args.get('domain_id', '').strip()
     cfg = get_domain_config_by_id(domain_id) if domain_id else current_domain_cfg()
+    # Cùng logic loại trừ như get_ad_users_and_groups() ở trên: loại theo TÊN group hệ thống
+    # mặc định, không loại theo container CN=Users (admin có thể tạo group thật ở đó).
+    _default_group_names = (
+        "'Domain Computers','Domain Controllers','Domain Guests','Domain Users',"
+        "'Domain Admins','Enterprise Admins','Schema Admins','Group Policy Creator Owners',"
+        "'Read-only Domain Controllers','Enterprise Read-only Domain Controllers',"
+        "'Cloneable Domain Controllers','Protected Users','Key Admins','Enterprise Key Admins',"
+        "'DnsAdmins','DnsUpdateProxy','RAS and IAS Servers',"
+        "'Allowed RODC Password Replication Group','Denied RODC Password Replication Group',"
+        "'Cert Publishers'"
+    )
     ps_cmd = (
+        f"$defaultNames = @({_default_group_names}); "
         "Get-ADGroup -Filter * -Properties DistinguishedName | "
-        "Where-Object { $_.DistinguishedName -notmatch 'CN=Builtin' -and "
-        "$_.DistinguishedName -notmatch ',CN=Users,' } | "
+        "Where-Object { $_.Name -eq 'Administrators' -or "
+        "($_.DistinguishedName -notmatch 'CN=Builtin' -and $_.Name -notin $defaultNames) } | "
         "Select-Object -ExpandProperty Name | Sort-Object | ConvertTo-Json -Compress"
     )
     out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
@@ -1630,17 +1718,22 @@ def api_get_groups():
 def api_get_ous():
     domain_id = request.args.get('domain_id', '').strip()
     cfg = get_domain_config_by_id(domain_id) if domain_id else current_domain_cfg()
-    # Ngoài các OU thật, bổ sung container mặc định "Computers" (CN=Computers,...) —
-    # đây là nơi các máy mới join domain tự động rơi vào (không phải OU nên
-    # Get-ADOrganizationalUnit không trả về), lấy qua (Get-ADDomain).ComputersContainer
-    # để đúng cả trường hợp container này đã bị redirect bằng redircmp.exe.
+    # Ngoài các OU thật, bổ sung 2 container mặc định của AD — không phải OU thật nên
+    # Get-ADOrganizationalUnit không trả về, phải lấy riêng qua Get-ADDomain:
+    #  - "Computers": nơi máy mới join domain tự rơi vào (ComputersContainer)
+    #  - "Users":     nơi user/group mặc định của AD nằm khi không được đặt OU cụ thể
+    #                 (vd group "Administrators", "Domain Admins"... và cả group admin tự
+    #                 tạo mà không chỉ định -Path) (UsersContainer)
+    # Cả 2 đều tôn trọng trường hợp đã bị redirect bằng redircmp.exe / redirusr.exe.
     ps_cmd = (
         "Import-Module ActiveDirectory; "
         "$ou = @(Get-ADOrganizationalUnit -Filter * -Properties Name,DistinguishedName | "
         "Select-Object Name,DistinguishedName,@{Name='IsContainer';Expression={$false}}); "
         "$cc = (Get-ADDomain).ComputersContainer; "
-        "$container = [PSCustomObject]@{ Name='Computers'; DistinguishedName=$cc; IsContainer=$true }; "
-        "$all = @($container) + $ou; "
+        "$uc = (Get-ADDomain).UsersContainer; "
+        "$computersContainer = [PSCustomObject]@{ Name='Computers'; DistinguishedName=$cc; IsContainer=$true }; "
+        "$usersContainer     = [PSCustomObject]@{ Name='Users';     DistinguishedName=$uc; IsContainer=$true }; "
+        "$all = @($computersContainer) + @($usersContainer) + $ou; "
         "$all | Sort-Object DistinguishedName | ConvertTo-Json -Compress"
     )
     out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
@@ -1711,6 +1804,34 @@ def api_move_domain_computer():
 
     write_log(session['user'], 'MOVE_COMPUTER', target=name or dn,
               detail=f"Chuyển '{name or dn}' sang OU: {new_ou}")
+    return jsonify({"status": "success"})
+
+# ─────────────────────────────────────────────
+#  API — move group sang OU khác trong AD
+# ─────────────────────────────────────────────
+@app.route('/api/move-group', methods=['POST'])
+@domain_required
+@admin_required
+def api_move_group():
+    cfg = current_domain_cfg()
+    data = request.get_json() or {}
+    dn      = (data.get('dn') or '').strip()
+    new_ou  = (data.get('new_ou') or '').strip()
+    name    = (data.get('name') or '').strip()
+
+    if not dn or not new_ou:
+        return jsonify({"status": "error", "message": "Thiếu Distinguished Name hoặc OU đích"})
+
+    ps_cmd = (
+        f"Import-Module ActiveDirectory; "
+        f"Move-ADObject -Identity '{ps_quote(dn)}' -TargetPath '{ps_quote(new_ou)}'"
+    )
+    out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    if ec != 0:
+        return jsonify({"status": "error", "message": err.strip() or "Move thất bại"})
+
+    write_log(session['user'], 'MOVE_GROUP', target=name or dn,
+              detail=f"Chuyển group '{name or dn}' sang OU: {new_ou}")
     return jsonify({"status": "success"})
 
 # ─────────────────────────────────────────────
