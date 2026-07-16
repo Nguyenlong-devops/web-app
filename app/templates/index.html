@@ -188,25 +188,25 @@
 
 <!-- ══════════════════ MODAL: Group Members ══════════════════ -->
 <div id="groupMembersModal" class="modal">
-    <div class="modal-content" style="max-width:520px;">
+    <div class="modal-content" style="max-width:640px;">
         <div class="modal-header">
             <div class="modal-title" id="groupMembersTitle">👥 Thành viên Group</div>
             <button class="close-btn" onclick="closeModal('groupMembersModal')">✕</button>
         </div>
         <div class="modal-body">
             <!-- Thêm thành viên -->
-            <div style="display:grid;grid-template-columns:1fr 80px;gap:8px;margin-bottom:12px;align-items:start;">
-                <select id="gm_add_user_select" style="height:34px;padding:0 8px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;width:100%;min-width:0;">
+            <div class="gm-add-row" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+                <select id="gm_add_user_select" style="height:36px;padding:0 10px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text);font-size:13px;width:100%;min-width:0;">
                     <option value="">— Chọn user để thêm —</option>
                     {% for u in ad_users %}
                     <option value="{{ u.SamAccountName }}">{{ u.SamAccountName }} — {{ u.Name }}</option>
                     {% endfor %}
                 </select>
-                <button type="button" onclick="addMemberToGroup()" style="height:34px;background:#0078d4;color:#fff;border:none;border-radius:4px;font-weight:700;font-size:12px;cursor:pointer;">+ Thêm</button>
+                <button type="button" onclick="addMemberToGroup()" style="height:36px;background:#0078d4;color:#fff;border:none;border-radius:4px;font-weight:700;font-size:12px;cursor:pointer;padding:0 16px;">+ Thêm</button>
             </div>
             <!-- Danh sách thành viên -->
             <div style="font-size:12px;color:var(--text-soft);margin-bottom:8px;">Thành viên hiện tại — bấm ✕ để xóa</div>
-            <div id="groupMembersBody" style="max-height:350px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;">
+            <div id="groupMembersBody" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;">
                 <div style="text-align:center;color:var(--text-muted);padding:20px;">Đang tải...</div>
             </div>
         </div>
@@ -1506,6 +1506,34 @@ html[data-theme="dark"] .eu-field-card:hover { background: rgba(255,255,255,.06)
 .lp-row:hover:not(.lp-disabled) { background: var(--bg-secondary); }
 .lp-row.lp-active { background: rgba(0,120,212,.14); font-weight: 600; }
 .lp-row.lp-disabled { color: var(--text-muted); cursor: default; text-align: center; }
+
+/* Khung tìm/chọn user trong modal "Thành viên Group" — mở rộng riêng cho thoáng hơn (modal
+   này đã được nới rộng lên 640px), không ảnh hưởng tới các list-picker nhỏ khác dùng chung
+   class .lp-list ở những nơi khác trong app. */
+#groupMembersModal .lp-list { max-height: 180px; }
+#groupMembersModal .lp-row { padding: 8px 12px; font-size: 13.5px; }
+#groupMembersModal .lp-input { height: 36px; font-size: 13.5px; }
+
+/* Giới hạn chiều cao cả modal theo màn hình — trước đây modal có thể cao hơn cả viewport,
+   khiến cả TRANG phải cuộn (không phải cuộn bên trong modal), làm góc bo tròn phía trên bị
+   cuộn khuất khỏi màn hình nhìn giống bị "cắt vuông". Giờ modal tự giới hạn tối đa 90% chiều
+   cao màn hình, phần header/footer luôn cố định nhìn thấy được, chỉ phần thân (modal-body)
+   cuộn riêng bên trong khi nội dung dài — góc bo tròn luôn nằm trong vùng nhìn thấy. */
+#groupMembersModal .modal-content {
+    max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;
+}
+#groupMembersModal .modal-body { overflow-y: auto; flex: 1 1 auto; }
+
+/* Hàng "tìm user để thêm": ô tìm kiếm + nút "+ Thêm" nằm chung 1 hàng, còn khung danh sách kết
+   quả xuống hàng riêng và kéo dài hết chiều ngang modal (không bị bó hẹp theo cột của ô input).
+   display:contents trên .lp-wrap làm nó "biến mất" khỏi layout, để input/list bên trong nó trở
+   thành flex-item trực tiếp của .gm-add-row, xếp cạnh nút bấm — nhờ đó dùng được order/flex-basis
+   để sắp xếp lại vị trí hiển thị mà không cần sửa hàm initListPicker() dùng chung toàn app. */
+#groupMembersModal .gm-add-row .lp-wrap { display: contents; }
+#groupMembersModal .gm-add-row .lp-input { order: 1; flex: 1 1 220px; margin: 0; }
+#groupMembersModal .gm-add-row > button { order: 2; flex: 0 0 auto; }
+#groupMembersModal .gm-add-row .lp-list { order: 3; flex: 1 1 100%; }
+#groupMembersModal .gm-add-row select { order: 3; }
 .eu-input:focus, .eu-select:focus { border-color: var(--azure); box-shadow: 0 0 0 2px var(--azure-glow); }
 .eu-divider { height: 1px; background: var(--border-light); margin: 16px 0; }
 /* Fix tương phản chữ tab "Danh Sách Tài Sản" / "Máy Trong Domain" + subtitle theo theme sáng/tối */
@@ -2002,13 +2030,21 @@ function euAddGroup() {
     btn.disabled = true;
     btn.textContent = '...';
 
+    // AbortController: giới hạn 70s phía trình duyệt — backend đã tự bounded ở mức tối đa
+    // ~90s (2 lần thử x 45s), nhưng vẫn thêm 1 lớp phòng bị ở client để nút không bao giờ bị
+    // kẹt vĩnh viễn nếu có tình huống bất thường khiến response không bao giờ về được.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 70000);
+
     fetch('/api/add-user-group', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({username: _euSam, group})
+        body: JSON.stringify({username: _euSam, group}),
+        signal: controller.signal
     })
     .then(r => r.json())
     .then(d => {
+        clearTimeout(timeoutId);
         btn.disabled = false;
         btn.textContent = '+ Thêm';
         if (d.status === 'success') {
@@ -2020,23 +2056,28 @@ function euAddGroup() {
             showToast(d.message || 'Thất bại', 'danger');
         }
     })
-    .catch(() => {
+    .catch((e) => {
+        clearTimeout(timeoutId);
         btn.disabled = false;
         btn.textContent = '+ Thêm';
-        showToast('Lỗi kết nối', 'danger');
+        showToast(e.name === 'AbortError' ? 'Quá thời gian chờ, vui lòng thử lại' : 'Lỗi kết nối', 'danger');
     });
 }
 
 // ── Xóa group ──
 function euRemoveGroup(group) {
     if (!confirm('Xóa "' + _euSam + '" khỏi group "' + group + '"?')) return;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 70000);
     fetch('/api/remove-user-group', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({username: _euSam, group})
+        body: JSON.stringify({username: _euSam, group}),
+        signal: controller.signal
     })
     .then(r => r.json())
     .then(d => {
+        clearTimeout(timeoutId);
         if (d.status === 'success') {
             _euGroups = _euGroups.filter(g => g !== group);
             euRenderGroups();
@@ -2046,7 +2087,10 @@ function euRemoveGroup(group) {
             showToast(d.message || 'Thất bại', 'danger');
         }
     })
-    .catch(() => showToast('Lỗi kết nối', 'danger'));
+    .catch((e) => {
+        clearTimeout(timeoutId);
+        showToast(e.name === 'AbortError' ? 'Quá thời gian chờ, vui lòng thử lại' : 'Lỗi kết nối', 'danger');
+    });
 }
 
 // ── Lưu tất cả thay đổi ──
@@ -3076,6 +3120,11 @@ function openUserEditModal(btn) {
 
     resetListPicker('eu_computer_select');
     resetListPicker('eu_group_select');
+
+    // Phòng trường hợp lần mở modal trước bị lỗi/treo giữa chừng khiến nút "+ Thêm" kẹt ở
+    // trạng thái "..." (đang xử lý) — luôn reset lại về trạng thái bình thường mỗi khi mở modal.
+    const addBtn = document.getElementById('eu_add_btn');
+    if (addBtn) { addBtn.disabled = false; addBtn.textContent = '+ Thêm'; }
 
     document.getElementById('userEditModal').classList.add('show');
 }

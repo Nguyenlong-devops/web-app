@@ -5,6 +5,7 @@ import csv
 import io
 import time
 import secrets
+import threading
 import psycopg2
 import paramiko
 from datetime import timedelta
@@ -339,7 +340,7 @@ def get_upn_suffixes(cfg):
     Trusts'. Đây chính là danh sách hiện trong dropdown 'User logon name' ở tab Account của
     ADUC, dùng để chọn domain đăng nhập khi tạo/sửa user."""
     ps_cmd = (
-        "Import-Module ActiveDirectory; "
+        "Import-Module ActiveDirectory -DisableNameChecking; "
         "$primary = (Get-ADDomain).DNSRoot; "
         "$alt = (Get-ADForest).UPNSuffixes; "
         "$all = @($primary) + @($alt); "
@@ -487,27 +488,69 @@ def test_ssh_connectivity(host, user, password, timeout=8):
             return False, "timed out — SSH (OpenSSH Server) có thể chưa chạy hoặc firewall chưa mở port 22 trên Domain Controller này"
         return False, str(e)
 
+# ─────────────────────────────────────────────
+#  SSH connection pool — TÁI SỬ DỤNG kết nối SSH đã mở, thay vì mở-đóng mới cho MỖI lệnh
+#  PowerShell. Trước đây mỗi hành động (thêm/xoá group, tạo user, đổi mật khẩu...) đều tự
+#  connect() một kết nối SSH hoàn toàn mới rồi đóng ngay sau khi xong — tốn thêm 1-2s bắt tay
+#  TCP+SSH mỗi lần, CỘNG DỒN với thời gian PowerShell tự nó đã chậm (nạp module ActiveDirectory)
+#  khiến 1 thao tác đơn giản có thể mất 10-20s. Giữ lại kết nối đã xác thực thành công cho mỗi
+#  domain, dùng lại ở các lệnh sau — chỉ mở lại khi kết nối cũ đã chết (mất mạng, DC restart...).
+#  Lưu ý: dùng chung 1 kết nối cho nhiều lệnh CÙNG LÚC (nhiều tab/nhiều admin) vẫn an toàn vì
+#  SSH hỗ trợ multiplex nhiều channel trên 1 transport — mỗi exec_command() vẫn là 1 channel
+#  (1 tiến trình powershell.exe) riêng biệt, không lẫn output giữa các lệnh với nhau.
+# ─────────────────────────────────────────────
+_SSH_POOL = {}              # domain_key (ssh_host) -> paramiko.SSHClient đã connect
+_SSH_POOL_LOCK = threading.Lock()  # bảo vệ việc tạo/thay thế connection trong pool (không tạo trùng)
+
+def _get_pooled_ssh_client(cfg):
+    """Trả về 1 SSHClient đã kết nối, tái sử dụng nếu còn sống; tự động mở lại nếu đã chết."""
+    domain_key = cfg['ssh_host']
+    with _SSH_POOL_LOCK:
+        client = _SSH_POOL.get(domain_key)
+        if client is not None:
+            transport = client.get_transport()
+            if transport is not None and transport.is_active():
+                return client
+            # Kết nối cũ đã chết (mất mạng, DC restart SSH service...) -> dọn đi, tạo lại bên dưới
+            try:
+                client.close()
+            except Exception:
+                pass
+            _SSH_POOL.pop(domain_key, None)
+
+        new_client = paramiko.SSHClient()
+        new_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        new_client.connect(
+            hostname=cfg['ssh_host'], username=cfg['ssh_user'], password=cfg['ssh_pass'],
+            timeout=10, look_for_keys=False, allow_agent=False
+        )
+        _SSH_POOL[domain_key] = new_client
+        return new_client
+
+def _evict_pooled_ssh_client(domain_key):
+    """Loại bỏ 1 connection hỏng khỏi pool để lần gọi sau tự mở lại kết nối mới."""
+    with _SSH_POOL_LOCK:
+        client = _SSH_POOL.pop(domain_key, None)
+    if client is not None:
+        try:
+            client.close()
+        except Exception:
+            pass
+
 def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
     if cfg is None:
         cfg = get_active_domain_config()
     if not cfg:
         return ("", "Chưa kết nối domain", 1) if return_stderr else ""
 
+    domain_key = cfg['ssh_host']
     last_exc = None
-    # Thử tối đa 2 lần: lỗi "No existing session" / mất kết nối SSH giữa chừng với OpenSSH
-    # trên Windows đôi khi chỉ là chớp nhoáng — thử lại 1 lần cho ổn định hơn là báo lỗi ngay.
+    # Thử tối đa 2 lần: lỗi "No existing session" / kết nối SSH trong pool vừa chết đúng lúc
+    # (DC restart, mất mạng chớp nhoáng...) đôi khi chỉ thoáng qua — thử lại 1 lần với kết nối
+    # MỚI (đã evict kết nối hỏng ở lần thử trước) ổn định hơn là báo lỗi ngay.
     for attempt in range(2):
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
-            # look_for_keys=False, allow_agent=False: nếu không tắt, paramiko sẽ thử xác thực bằng
-            # SSH key / ssh-agent cục bộ TRƯỚC khi thử password — với OpenSSH Server trên Windows,
-            # việc này thường khiến phiên SSH rơi vào trạng thái hỏng và exec_command() sau đó báo
-            # lỗi "No existing session" dù connect() tưởng như đã thành công. Ép chỉ dùng password.
-            ssh.connect(
-                hostname=cfg['ssh_host'], username=cfg['ssh_user'], password=cfg['ssh_pass'],
-                timeout=10, look_for_keys=False, allow_agent=False
-            )
+            ssh = _get_pooled_ssh_client(cfg)
             # Ép PowerShell xuất ra UTF-8 thay vì bảng mã console mặc định (OEM/ANSI) —
             # đây là nguyên nhân chính khiến tên user tiếng Việt (dấu) bị lỗi font khi đọc về.
             # $ProgressPreference = SilentlyContinue: chặn PowerShell serialize thông báo tiến trình
@@ -555,9 +598,14 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
         except Exception as e:
             last_exc = e
             print(f"SSH Error (attempt {attempt + 1}/2): {e}")
+            # Kết nối trong pool có thể đã hỏng (nguyên nhân gây lỗi) -> loại bỏ để lần thử
+            # tiếp theo (hoặc lệnh kế tiếp) tự mở lại kết nối mới, thay vì tiếp tục dùng lại
+            # 1 connection đã hỏng.
+            _evict_pooled_ssh_client(domain_key)
             continue
-        finally:
-            ssh.close()
+        # Không còn "finally: ssh.close()" — kết nối được GIỮ LẠI trong pool để dùng cho lệnh
+        # tiếp theo thay vì đóng ngay sau mỗi lệnh (đó là lý do chính khiến trước đây mỗi thao
+        # tác đều phải trả thêm phí bắt tay SSH từ đầu).
 
     if return_stderr:
         return "", str(last_exc), 1
@@ -1019,7 +1067,7 @@ def change_password():
                 else:
                     conn.unbind()
                     ps_cmd = (
-                        f"Import-Module ActiveDirectory; "
+                        f"Import-Module ActiveDirectory -DisableNameChecking; "
                         f"$sec = ConvertTo-SecureString '{ps_quote(new_password)}' -AsPlainText -Force; "
                         f"Set-ADAccountPassword -Identity '{ps_quote(username)}' -NewPassword $sec -Reset"
                     )
@@ -1172,7 +1220,7 @@ def create_user():
         upn = f"{sam_account_name}{cfg['domain_suffix']}"
 
     ps_cmd = (
-        f"Import-Module ActiveDirectory; "
+        f"Import-Module ActiveDirectory -DisableNameChecking; "
         f"New-ADUser -SamAccountName '{ps_quote(sam_account_name)}' -Name '{ps_quote(full_name)}' "
         f"-AccountPassword (ConvertTo-SecureString '{ps_quote(password)}' -AsPlainText -Force) "
         f"-Path '{ps_quote(ou_dn)}' -UserPrincipalName '{ps_quote(upn)}' "
@@ -1218,7 +1266,7 @@ def create_group():
         ou_dn   = f"CN=Users,{base_dn}"
 
     ps_parts = [
-        "Import-Module ActiveDirectory",
+        "Import-Module ActiveDirectory -DisableNameChecking",
         f"New-ADGroup -Name '{ps_quote(group_name)}' -SamAccountName '{ps_quote(group_name)}' "
         f"-GroupScope '{ps_quote(group_scope)}' -GroupCategory '{ps_quote(group_type)}' "
         f"-Path '{ps_quote(ou_dn)}'"
@@ -1259,7 +1307,7 @@ def edit_user_ad():
     # 1. Đổi tên hiển thị (AD Rename — CN + DisplayName)
     if display_name:
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; "
+            f"Import-Module ActiveDirectory -DisableNameChecking; "
             f"$u = Get-ADUser -Identity '{current_identity}' -Properties DistinguishedName; "
             f"Rename-ADObject -Identity $u.DistinguishedName -NewName '{ps_quote(display_name)}'; "
             f"Set-ADUser -Identity '{current_identity}' -DisplayName '{ps_quote(display_name)}' -GivenName '{ps_quote(display_name)}'",
@@ -1271,7 +1319,7 @@ def edit_user_ad():
     # 2. Đổi mật khẩu
     if password:
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; Set-ADAccountPassword -Identity '{current_identity}' "
+            f"Import-Module ActiveDirectory -DisableNameChecking; Set-ADAccountPassword -Identity '{current_identity}' "
             f"-NewPassword (ConvertTo-SecureString '{ps_quote(password)}' -AsPlainText -Force) -Reset",
             cfg, return_stderr=True)
         details.append(f"password_reset exit={ec}")
@@ -1282,13 +1330,13 @@ def edit_user_ad():
     # 3. Enable/Disable
     if status == "true":
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; Enable-ADAccount -Identity '{current_identity}'",
+            f"Import-Module ActiveDirectory -DisableNameChecking; Enable-ADAccount -Identity '{current_identity}'",
             cfg, return_stderr=True)
         details.append(f"enabled=true exit={ec}")
         if ec != 0: errors.append(f"Enable account thất bại: {err.strip() or 'lỗi không rõ'}")
     else:
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; Disable-ADAccount -Identity '{current_identity}'",
+            f"Import-Module ActiveDirectory -DisableNameChecking; Disable-ADAccount -Identity '{current_identity}'",
             cfg, return_stderr=True)
         details.append(f"enabled=false exit={ec}")
         if ec != 0: errors.append(f"Disable account thất bại: {err.strip() or 'lỗi không rõ'}")
@@ -1296,7 +1344,7 @@ def edit_user_ad():
     # 4. Di chuyển OU
     if new_ou:
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; "
+            f"Import-Module ActiveDirectory -DisableNameChecking; "
             f"$u = Get-ADUser -Identity '{current_identity}' -Properties DistinguishedName; "
             f"Move-ADObject -Identity $u.DistinguishedName -TargetPath '{ps_quote(new_ou)}'",
             cfg, return_stderr=True)
@@ -1320,7 +1368,7 @@ def edit_user_ad():
         set_args.append(f"-UserPrincipalName '{ps_quote(upn)}'")
 
         out, err, ec = run_powershell_ssh(
-            f"Import-Module ActiveDirectory; "
+            f"Import-Module ActiveDirectory -DisableNameChecking; "
             f"Set-ADUser -Identity '{current_identity}' {' '.join(set_args)}",
             cfg, return_stderr=True)
         details.append(f"sam={username}->{final_sam}, upn={upn} exit={ec}")
@@ -1726,7 +1774,7 @@ def api_get_ous():
     #                 tạo mà không chỉ định -Path) (UsersContainer)
     # Cả 2 đều tôn trọng trường hợp đã bị redirect bằng redircmp.exe / redirusr.exe.
     ps_cmd = (
-        "Import-Module ActiveDirectory; "
+        "Import-Module ActiveDirectory -DisableNameChecking; "
         "$ou = @(Get-ADOrganizationalUnit -Filter * -Properties Name,DistinguishedName | "
         "Select-Object Name,DistinguishedName,@{Name='IsContainer';Expression={$false}}); "
         "$cc = (Get-ADDomain).ComputersContainer; "
@@ -1795,7 +1843,7 @@ def api_move_domain_computer():
         return jsonify({"status": "error", "message": "Thiếu Distinguished Name hoặc OU đích"})
 
     ps_cmd = (
-        f"Import-Module ActiveDirectory; "
+        f"Import-Module ActiveDirectory -DisableNameChecking; "
         f"Move-ADObject -Identity '{ps_quote(dn)}' -TargetPath '{ps_quote(new_ou)}'"
     )
     out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
@@ -1823,7 +1871,7 @@ def api_move_group():
         return jsonify({"status": "error", "message": "Thiếu Distinguished Name hoặc OU đích"})
 
     ps_cmd = (
-        f"Import-Module ActiveDirectory; "
+        f"Import-Module ActiveDirectory -DisableNameChecking; "
         f"Move-ADObject -Identity '{ps_quote(dn)}' -TargetPath '{ps_quote(new_ou)}'"
     )
     out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
@@ -2255,9 +2303,14 @@ def api_remove_user_group():
     data     = request.get_json()
     username = data.get('username')
     group    = data.get('group')
-    ps_cmd = f"Import-Module ActiveDirectory; Remove-ADGroupMember -Identity '{ps_quote(group)}' -Members '{ps_quote(username)}' -Confirm:0"
+    ps_cmd = f"Import-Module ActiveDirectory -DisableNameChecking; Remove-ADGroupMember -Identity '{ps_quote(group)}' -Members '{ps_quote(username)}' -Confirm:0"
     out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
     write_log(session['user'], 'REMOVE_FROM_GROUP', target=username, detail=f"group={group} exit={exitcode}")
+    # Trước đây luôn trả "success" bất kể exitcode — nếu PowerShell thất bại (vd hết quyền,
+    # group/user không tồn tại, SSH lỗi), người dùng vẫn thấy giao diện báo thành công dù group
+    # thực ra chưa bị xoá thật trên AD. Giờ kiểm tra đúng exitcode trước khi báo success.
+    if exitcode != 0:
+        return jsonify({"status": "error", "message": err.strip() or "Xoá khỏi group thất bại (không rõ lý do)."})
     return jsonify({"status": "success"})
 
 # ─────────────────────────────────────────────
@@ -2296,9 +2349,12 @@ def api_add_user_group():
         return jsonify({"status": "error", "message": "Vui lòng chọn group."})
 
     group = group.strip()
-    ps_cmd = f"Import-Module ActiveDirectory; Add-ADGroupMember -Identity '{ps_quote(group)}' -Members '{ps_quote(username)}' -Confirm:0"
+    ps_cmd = f"Import-Module ActiveDirectory -DisableNameChecking; Add-ADGroupMember -Identity '{ps_quote(group)}' -Members '{ps_quote(username)}' -Confirm:0"
     out, err, exitcode = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
     write_log(session['user'], 'ADD_TO_GROUP', target=username, detail=f"group={group} exit={exitcode}")
+    # Trước đây luôn trả "success" bất kể exitcode — xem giải thích ở api_remove_user_group.
+    if exitcode != 0:
+        return jsonify({"status": "error", "message": err.strip() or "Thêm vào group thất bại (không rõ lý do)."})
     return jsonify({"status": "success", "group": group})
 
 # ─────────────────────────────────────────────
