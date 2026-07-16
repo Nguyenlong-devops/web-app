@@ -110,6 +110,91 @@
 <!--         <div class="version">PV Portal v2.0</div> -->
     </div>
 
+    <!-- ══════════════════ MODAL: Phiên đăng nhập hết hạn ══════════════════ -->
+    <!-- Không có nút Đóng/X — bắt buộc người dùng bấm "Đăng Nhập Lại" vì phiên đã thực sự
+         hết hạn, không còn gì để "hủy" cả (khác các modal thao tác thông thường khác). -->
+    <div id="sessionExpiredModal" class="modal">
+        <div class="modal-content session-expired-card">
+            <div class="se-icon-ring">
+                <div class="se-icon-circle">
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="9"/>
+                        <path d="M12 7v5l3 2"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="se-title">Phiên đăng nhập đã hết hạn</div>
+            <button type="button" class="btn btn-primary se-btn" onclick="goToLoginAfterExpired()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                    <polyline points="10 17 15 12 10 7"/>
+                    <line x1="15" y1="12" x2="3" y2="12"/>
+                </svg>
+                <span>Đăng Nhập Lại</span>
+            </button>
+        </div>
+    </div>
+
+    <style>
+        .session-expired-card {
+            max-width: 340px;
+            text-align: center;
+            padding: 36px 28px 28px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .se-icon-ring {
+            width: 68px;
+            height: 68px;
+            border-radius: 50%;
+            background: rgba(220, 38, 38, .1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 18px;
+        }
+        .se-icon-circle {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            box-shadow: 0 4px 14px rgba(220, 38, 38, .35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .se-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 22px;
+            letter-spacing: -.01em;
+        }
+        .se-btn {
+            width: 100%;
+            padding: 12px 0;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            text-align: center;
+            letter-spacing: .01em;
+            box-shadow: 0 4px 12px rgba(0, 120, 212, .28);
+            transition: transform .12s ease, box-shadow .12s ease;
+        }
+        .se-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(0, 120, 212, .38);
+        }
+        .se-btn:active {
+            transform: translateY(0);
+        }
+    </style>
+
     <!-- ══════════════════ MODAL: Tạo Group ══════════════════ -->
 <div id="createGroupModal" class="modal">
     <div class="modal-content" style="max-width:480px;">
@@ -958,8 +1043,8 @@
                                     <button class="btn btn-ghost btn-sm" style="white-space:nowrap;" onclick="openGroupMembersModal('{{ g.Name }}')">
                                         👥 Thành viên
                                     </button>
-                                    <button class="btn btn-secondary btn-sm" onclick="openMoveGroupModal('{{ (g.DistinguishedName or '')|replace("'", "\\'") }}','{{ (g.Name or '')|replace("'", "\\'") }}')" title="Move sang OU khác">↪</button>
-                                    <button class="btn btn-secondary btn-sm" onclick="openEditGroupModal('{{ (g.DistinguishedName or '')|replace("'", "\\'") }}','{{ (g.Name or '')|replace("'", "\\'") }}','{{ (g.Description or '')|replace("'", "\\'")|replace('\n', ' ') }}')" title="Sửa tên / description">✏</button>
+                                    <button class="btn btn-secondary btn-sm" onclick="openMoveGroupModal('{{ (g.DistinguishedName or '')|replace("'", "\\'") }}','{{ (g.Name or '')|replace("'", "\\'") }}')" title="Move OU">↪</button>
+                                    <button class="btn btn-secondary btn-sm" onclick="openEditGroupModal('{{ (g.DistinguishedName or '')|replace("'", "\\'") }}','{{ (g.Name or '')|replace("'", "\\'") }}','{{ (g.Description or '')|replace("'", "\\'")|replace('\n', ' ') }}')" title="Edit">✏</button>
                                 </div>
                             </td>
                         </tr>
@@ -1648,26 +1733,77 @@ html[data-theme="dark"] #cmp-page-subtitle { color:#c8c8c8 !important; }
 <script id="adGroupsData" type="application/json">{{ ad_groups | map(attribute='Name') | list | tojson }}</script>
 
 <script>
-// ─────────────────────── CSRF: tự động gắn token vào mọi fetch() cùng origin ───────────────────────
+// ─────────────────────── CSRF + PHÁT HIỆN PHIÊN HẾT HẠN: gắn vào mọi fetch() cùng origin ───────────────────────
 // Không cần sửa từng chỗ gọi fetch trong file này — override 1 lần duy nhất ở đây.
 (function() {
     const meta  = document.querySelector('meta[name="csrf-token"]');
     const token = meta ? meta.getAttribute('content') : '';
-    if (!token) return;
     const origFetch = window.fetch;
     window.fetch = function(input, init) {
         init = init || {};
         const url = (typeof input === 'string') ? input : (input && input.url) || '';
         const isRelative  = !/^https?:\/\//i.test(url);
         const sameOrigin  = isRelative || url.indexOf(window.location.origin) === 0;
-        if (sameOrigin) {
+        if (sameOrigin && token) {
             const headers = new Headers(init.headers || (typeof input !== 'string' && input.headers) || {});
             headers.set('X-CSRF-Token', token);
             init.headers = headers;
         }
-        return origFetch(input, init);
+        return origFetch(input, init).then(response => {
+            // Backend trả 401 kèm JSON {"status":"error", "message":"Phiên đăng nhập..."} khi
+            // session đã hết hạn (xem login_required/admin_required trong app.py) — bắt đúng
+            // trường hợp này để bật popup ở giữa màn hình, thay vì để lỗi âm thầm biến mất
+            // (trước đây fetch() tự động follow redirect 302 -> /login, JS gọi .json() trên
+            // HTML trả về bị lỗi lặng lẽ, người dùng không biết gì cho tới khi tự reload trang).
+            if (sameOrigin && response.status === 401) {
+                response.clone().json().then(data => {
+                    if (data && data.status === 'error') showSessionExpiredModal();
+                }).catch(() => {});
+            }
+            return response;
+        });
     };
 })();
+
+// ─────────────────────── PHIÊN ĐĂNG NHẬP HẾT HẠN (chủ động phát hiện phía client) ───────────────────────
+// Server tự đăng xuất sau 5 phút không có request nào (PERMANENT_SESSION_LIFETIME) — nhưng nếu
+// người dùng chỉ ngồi im không bấm gì cả, sẽ KHÔNG có request nào gửi lên để "phát hiện" điều đó
+// qua fetch() ở trên. Bộ đếm này chủ động theo dõi tương tác của người dùng (chuột/bàn phím/cuộn)
+// và tự bật popup NGAY khi đủ 5 phút im lặng, khớp với thời hạn phía server, thay vì phải đợi họ
+// bấm nhầm vào đâu đó rồi mới biết.
+const _IDLE_TIMEOUT_MS = 5 * 60 * 1000; // phải khớp với PERMANENT_SESSION_LIFETIME ở app.py
+let _lastActivityTs = Date.now();
+let _sessionExpiredShown = false;
+let _idleCheckTimer = null;
+
+function _resetIdleTimer() { _lastActivityTs = Date.now(); }
+
+function _checkIdleTimeout() {
+    if (_sessionExpiredShown) return;
+    if (Date.now() - _lastActivityTs >= _IDLE_TIMEOUT_MS) showSessionExpiredModal();
+}
+
+['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'].forEach(evt => {
+    document.addEventListener(evt, _resetIdleTimer, { passive: true });
+});
+// Tab bị ẩn/throttle timer trong lúc không active (trình duyệt hạn chế setInterval ở tab nền) —
+// kiểm tra lại ngay khi tab được xem lại, để không bị trễ phát hiện quá lâu so với thực tế.
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') _checkIdleTimeout();
+});
+_idleCheckTimer = setInterval(_checkIdleTimeout, 10000);
+
+function showSessionExpiredModal() {
+    if (_sessionExpiredShown) return;
+    _sessionExpiredShown = true;
+    if (_idleCheckTimer) clearInterval(_idleCheckTimer);
+    const modal = document.getElementById('sessionExpiredModal');
+    if (modal) modal.classList.add('show');
+}
+
+function goToLoginAfterExpired() {
+    window.location.href = '/login';
+}
 
 // ─────────────────────── THEME ───────────────────────
 function toggleTheme() {
