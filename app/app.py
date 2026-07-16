@@ -588,7 +588,7 @@ def run_powershell_ssh(command_block, cfg=None, return_stderr=False):
             # domain khác đang được admin khác dùng song song).
             _mutating_keywords = ('New-AD', 'Remove-AD', 'Set-AD', 'Add-ADGroupMember',
                                   'Remove-ADGroupMember', 'Enable-ADAccount', 'Disable-ADAccount',
-                                  'Move-ADObject')
+                                  'Move-ADObject', 'Rename-AD')
             if exitcode == 0 and any(k in command_block for k in _mutating_keywords):
                 _AD_CACHE.pop(cfg.get('ssh_host'), None)
 
@@ -691,10 +691,10 @@ def _fetch_and_cache_ad_data(cfg, domain_key):
             "Select-Object SamAccountName, Name, Enabled, DistinguishedName, "
             "@{Name='Groups';Expression={($_.MemberOf | ForEach-Object {($_ -split ',')[0] -replace 'CN=', ''}) -join ','}}; "
             f"$defaultNames = @({_default_group_names}); "
-            "$g = Get-ADGroup -Filter * -Properties DistinguishedName | "
+            "$g = Get-ADGroup -Filter * -Properties DistinguishedName,Description | "
             "Where-Object { $_.Name -eq 'Administrators' -or "
             "($_.DistinguishedName -notmatch ',CN=Builtin,' -and $_.Name -notin $defaultNames) } | "
-            "Select-Object SamAccountName, Name, DistinguishedName | Sort-Object Name; "
+            "Select-Object SamAccountName, Name, DistinguishedName, Description | Sort-Object Name; "
             "@{ users = @($u); groups = @($g) } | ConvertTo-Json -Compress -Depth 6"
         )
         out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
@@ -1880,6 +1880,49 @@ def api_move_group():
 
     write_log(session['user'], 'MOVE_GROUP', target=name or dn,
               detail=f"Chuyển group '{name or dn}' sang OU: {new_ou}")
+    return jsonify({"status": "success"})
+
+# ─────────────────────────────────────────────
+#  API — sửa tên / description của group
+# ─────────────────────────────────────────────
+@app.route('/api/edit-group', methods=['POST'])
+@domain_required
+@admin_required
+def api_edit_group():
+    cfg = current_domain_cfg()
+    data = request.get_json() or {}
+    dn          = (data.get('dn') or '').strip()
+    old_name    = (data.get('old_name') or '').strip()
+    new_name    = (data.get('name') or '').strip()
+    description = data.get('description', '') or ''
+
+    if not dn:
+        return jsonify({"status": "error", "message": "Thiếu Distinguished Name của group"})
+    if not new_name:
+        return jsonify({"status": "error", "message": "Tên group không được để trống"})
+
+    # Dùng ObjectGUID để định danh group xuyên suốt các lệnh — vì Rename-ADObject đổi cả DN
+    # của group (CN=<tên cũ> -> CN=<tên mới>), nếu vẫn dùng DN cũ cho các lệnh SAU rename sẽ
+    # báo lỗi "object không tồn tại". ObjectGUID không đổi bất kể đổi tên/di chuyển OU.
+    desc_cmd = (
+        f"Set-ADGroup -Identity $grp.ObjectGUID -Description '{ps_quote(description)}'"
+        if description.strip()
+        else "Set-ADGroup -Identity $grp.ObjectGUID -Clear Description"
+    )
+    ps_cmd = (
+        "Import-Module ActiveDirectory -DisableNameChecking; "
+        f"$grp = Get-ADGroup -Identity '{ps_quote(dn)}'; "
+    )
+    if new_name != old_name:
+        ps_cmd += f"Rename-ADObject -Identity $grp.ObjectGUID -NewName '{ps_quote(new_name)}'; "
+    ps_cmd += desc_cmd
+
+    out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    if ec != 0:
+        return jsonify({"status": "error", "message": err.strip() or "Cập nhật group thất bại"})
+
+    write_log(session['user'], 'EDIT_GROUP', target=new_name,
+              detail=f"dn={dn}, old_name={old_name}, new_name={new_name}, description={description[:200]}")
     return jsonify({"status": "success"})
 
 # ─────────────────────────────────────────────
