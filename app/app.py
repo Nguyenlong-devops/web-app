@@ -195,6 +195,16 @@ def init_db():
         """ALTER TABLE computers ADD COLUMN IF NOT EXISTS model VARCHAR(128)""",
         """ALTER TABLE computers ADD COLUMN IF NOT EXISTS bitlocker VARCHAR(32)""",
 
+        # 9b-2. Migration: Recovery Key BitLocker riêng cho từng ổ đĩa (C/D/E) — key thật (dài,
+        #    dạng XXXXXX-XXXXXX-...) và Identifier (8 ký tự đầu của Key ID, dùng để tra đúng key
+        #    khi máy hiện màn hình BitLocker yêu cầu — Windows hiện sẵn 8 ký tự này lúc khoá máy).
+        """ALTER TABLE computers ADD COLUMN IF NOT EXISTS bitlocker_c VARCHAR(128)""",
+        """ALTER TABLE computers ADD COLUMN IF NOT EXISTS bitlocker_d VARCHAR(128)""",
+        """ALTER TABLE computers ADD COLUMN IF NOT EXISTS bitlocker_e VARCHAR(128)""",
+        """ALTER TABLE computers ADD COLUMN IF NOT EXISTS bitlocker_c_id VARCHAR(16)""",
+        """ALTER TABLE computers ADD COLUMN IF NOT EXISTS bitlocker_d_id VARCHAR(16)""",
+        """ALTER TABLE computers ADD COLUMN IF NOT EXISTS bitlocker_e_id VARCHAR(16)""",
+
         # 9c. Migration: đảm bảo Mã Tài Sản không trùng nhau (bỏ qua NULL/rỗng).
         #    Nếu DB đang có sẵn mã trùng, bước này sẽ tự bỏ qua (in log) — cần dọn dữ liệu trùng
         #    thủ công rồi restart app để index được tạo. Việc chặn trùng mới vẫn được áp dụng ở tầng ứng dụng.
@@ -1965,7 +1975,9 @@ def api_get_computers():
         cur.execute("""
             SELECT c.id, c.asset_code, c.device_type, c.computer_name, c.location, c.brand, c.model,
                    c.cpu, c.ram, c.ssd, c.hdd, c.bitlocker, c.status, c.notes, c.updated_at,
-                   COALESCE(string_agg(uc.sam_account_name, ', ' ORDER BY uc.sam_account_name), '') AS assigned_users
+                   COALESCE(string_agg(uc.sam_account_name, ', ' ORDER BY uc.sam_account_name), '') AS assigned_users,
+                   c.bitlocker_c, c.bitlocker_d, c.bitlocker_e,
+                   c.bitlocker_c_id, c.bitlocker_d_id, c.bitlocker_e_id
             FROM computers c
             LEFT JOIN user_computers uc ON uc.computer_id = c.id
             GROUP BY c.id
@@ -1973,7 +1985,8 @@ def api_get_computers():
         """)
         rows = cur.fetchall()
         cols = ['id','asset_code','device_type','computer_name','location','brand','model',
-                'cpu','ram','ssd','hdd','bitlocker','status','notes','updated_at','assigned_user']
+                'cpu','ram','ssd','hdd','bitlocker','status','notes','updated_at','assigned_user',
+                'bitlocker_c','bitlocker_d','bitlocker_e','bitlocker_c_id','bitlocker_d_id','bitlocker_e_id']
         result = []
         for r in rows:
             d = dict(zip(cols, r))
@@ -2099,6 +2112,45 @@ def api_update_computer(cid):
         conn.rollback(); return jsonify({"status":"error","message":str(e)})
     finally: cur.close(); conn.close()
 
+@app.route('/api/computers/<int:cid>/bitlocker', methods=['PUT'])
+@domain_required
+@admin_required
+def api_update_bitlocker(cid):
+    """Lưu BitLocker Recovery Key + Identifier (8 ký tự đầu của Key ID) riêng cho từng ổ đĩa
+    (C/D/E). Tách route riêng vì đây là dữ liệu nhạy cảm (khôi phục ổ cứng đã mã hoá), chỉ
+    admin mới gọi được (đã có @admin_required), và audit log riêng để dễ tra khi cần biết
+    ai đã xem/sửa recovery key của máy nào."""
+    data = request.get_json() or {}
+
+    def _clean_id(v):
+        # Identifier chỉ giữ tối đa 8 ký tự đầu, viết hoa cho đồng nhất (khớp cách Windows hiển thị)
+        return (v or '').strip().upper()[:8]
+
+    values = (
+        (data.get('bitlocker_c') or '').strip(), (data.get('bitlocker_d') or '').strip(), (data.get('bitlocker_e') or '').strip(),
+        _clean_id(data.get('bitlocker_c_id')), _clean_id(data.get('bitlocker_d_id')), _clean_id(data.get('bitlocker_e_id')),
+    )
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT computer_name FROM computers WHERE id=%s", (cid,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"status":"error","message":"Không tìm thấy máy"})
+        computer_name = row[0]
+
+        cur.execute("""
+            UPDATE computers SET bitlocker_c=%s, bitlocker_d=%s, bitlocker_e=%s,
+                bitlocker_c_id=%s, bitlocker_d_id=%s, bitlocker_e_id=%s, updated_at=NOW()
+            WHERE id=%s
+        """, values + (cid,))
+        conn.commit()
+        write_log(session['user'], 'UPDATE_BITLOCKER_KEY', target=computer_name,
+                  detail="Cập nhật BitLocker Recovery Key (nội dung key không ghi vào log vì lý do bảo mật)")
+        return jsonify({"status":"success"})
+    except Exception as e:
+        conn.rollback(); return jsonify({"status":"error","message":str(e)})
+    finally: cur.close(); conn.close()
+
 @app.route('/api/computers/<int:cid>', methods=['DELETE'])
 @domain_required
 @admin_required
@@ -2207,14 +2259,16 @@ def export_computers_csv():
     cur.execute("""
         SELECT c.asset_code,c.device_type,c.computer_name,c.location,c.brand,c.model,c.cpu,c.ram,c.ssd,c.hdd,c.bitlocker,c.status,
                COALESCE(string_agg(uc.sam_account_name, ', ' ORDER BY uc.sam_account_name), '') AS assigned_user,
-               c.notes
+               c.notes,
+               c.bitlocker_c_id, c.bitlocker_c, c.bitlocker_d_id, c.bitlocker_d, c.bitlocker_e_id, c.bitlocker_e
         FROM computers c
         LEFT JOIN user_computers uc ON uc.computer_id = c.id
         GROUP BY c.id ORDER BY c.id
     """)
     rows = cur.fetchall(); cur.close(); conn.close()
     si = io.StringIO(); cw = csv.writer(si)
-    cw.writerow(['Mã Tài Sản','Thiết Bị','Tên','Vị Trí','Hãng','Model','CPU','RAM','SSD','HDD','Bitlocker','Trạng Thái','User','Ghi Chú'])
+    cw.writerow(['Mã Tài Sản','Thiết Bị','Tên','Vị Trí','Hãng','Model','CPU','RAM','SSD','HDD','Bitlocker','Trạng Thái','User','Ghi Chú',
+                 'Identifier Disk C','Recovery Key Disk C','Identifier Disk D','Recovery Key Disk D','Identifier Disk E','Recovery Key Disk E'])
     smap = {'in_use':'Đang sử dụng','storage':'Lưu kho'}
     for r in rows:
         row = list(r); row[11] = smap.get(row[11], row[11]); cw.writerow(row)
@@ -2273,6 +2327,11 @@ def api_import_computers():
                       row.get('Vị Trí') or '', row.get('Hãng') or '', row.get('Model') or '',
                       row.get('CPU') or '', row.get('RAM') or '', row.get('SSD') or '', row.get('HDD') or '',
                       row.get('Bitlocker') or '', st, row.get('Ghi Chú') or '')
+            bl_values = (
+                row.get('Recovery Key Disk C') or '', (row.get('Identifier Disk C') or '').strip().upper()[:8],
+                row.get('Recovery Key Disk D') or '', (row.get('Identifier Disk D') or '').strip().upper()[:8],
+                row.get('Recovery Key Disk E') or '', (row.get('Identifier Disk E') or '').strip().upper()[:8],
+            )
 
             existing_id = existing_id_by_code.get(asset_code) if asset_code else None
             if existing_id:
@@ -2281,17 +2340,20 @@ def api_import_computers():
                 cur.execute("""
                     UPDATE computers SET device_type=%s, computer_name=%s, location=%s, brand=%s,
                         model=%s, cpu=%s, ram=%s, ssd=%s, hdd=%s, bitlocker=%s, status=%s, notes=%s,
+                        bitlocker_c=%s, bitlocker_c_id=%s, bitlocker_d=%s, bitlocker_d_id=%s,
+                        bitlocker_e=%s, bitlocker_e_id=%s,
                         updated_at=NOW()
                     WHERE id=%s
-                """, values + (existing_id,))
+                """, values + bl_values + (existing_id,))
                 new_id = existing_id
                 updated += 1
                 updated_codes.append((asset_code, computer_name))
             else:
                 cur.execute("""
-                    INSERT INTO computers (asset_code,device_type,computer_name,location,brand,model,cpu,ram,ssd,hdd,bitlocker,status,notes,updated_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
-                """, (asset_code,) + values)
+                    INSERT INTO computers (asset_code,device_type,computer_name,location,brand,model,cpu,ram,ssd,hdd,bitlocker,status,notes,
+                        bitlocker_c,bitlocker_c_id,bitlocker_d,bitlocker_d_id,bitlocker_e,bitlocker_e_id,updated_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
+                """, (asset_code,) + values + bl_values)
                 new_id = cur.fetchone()[0]
                 created += 1
                 if asset_code:

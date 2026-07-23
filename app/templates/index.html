@@ -476,8 +476,8 @@
                     <input type="text" id="cm_hdd" placeholder="vd: 1TB HDD">
                 </div>
                 <div class="form-group">
-                    <label>Bitlocker (mã khôi phục)</label>
-                    <input type="text" id="cm_bitlocker" placeholder="vd: AB12CD34" maxlength="8" style="font-family:monospace;text-transform:uppercase;">
+                    <label>Mã Bitlocker</label>
+                    <input type="text" id="cm_bitlocker" placeholder="vd: 52A9B5B3" style="font-family:monospace;">
                 </div>
                 <div class="form-group">
                     <label>Tình Trạng</label>
@@ -495,6 +495,55 @@
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closeModal('computerModal')">Hủy</button>
             <button class="btn btn-primary" onclick="saveComputer()">💾 Lưu</button>
+        </div>
+    </div>
+</div>
+
+<div id="recoveryKeyModal" class="modal">
+    <div class="modal-content" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title" id="rk_title">🔑 Recovery Key</div>
+            <button class="close-btn" onclick="closeModal('recoveryKeyModal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="rk_id">
+<!--             <div style="font-size:12px;color:var(--text-soft);margin-bottom:14px;"> -->
+<!--                 Mã khôi phục BitLocker cho từng ổ đĩa của máy này. "Identifier" là 8 ký tự đầu của Key ID — Windows tự hiển thị khi máy yêu cầu nhập Recovery Key, giúp xác định đúng key cần dùng. Chỉ admin mới xem/sửa được. -->
+<!--             </div> -->
+            <div class="form-group">
+                <label>Disk C</label>
+                <div style="display:flex;gap:6px;">
+                    <input type="text" id="rk_disk_c_id" placeholder="Identifier" maxlength="8"
+                        style="font-family:monospace;letter-spacing:.02em;width:100px;flex-shrink:0;text-transform:uppercase;" title="8 ký tự đầu của Key ID">
+                    <input type="text" id="rk_disk_c" placeholder="Chưa có key"
+                        style="font-family:monospace;letter-spacing:.02em;flex:1;">
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="copyRecoveryKey('rk_disk_c')" title="Sao chép">📋</button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Disk D</label>
+                <div style="display:flex;gap:6px;">
+                    <input type="text" id="rk_disk_d_id" placeholder="Identifier" maxlength="8"
+                        style="font-family:monospace;letter-spacing:.02em;width:100px;flex-shrink:0;text-transform:uppercase;" title="8 ký tự đầu của Key ID">
+                    <input type="text" id="rk_disk_d" placeholder="Chưa có key"
+                        style="font-family:monospace;letter-spacing:.02em;flex:1;">
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="copyRecoveryKey('rk_disk_d')" title="Sao chép">📋</button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Disk E</label>
+                <div style="display:flex;gap:6px;">
+                    <input type="text" id="rk_disk_e_id" placeholder="Identifier" maxlength="8"
+                        style="font-family:monospace;letter-spacing:.02em;width:100px;flex-shrink:0;text-transform:uppercase;" title="8 ký tự đầu của Key ID">
+                    <input type="text" id="rk_disk_e" placeholder="Chưa có key"
+                        style="font-family:monospace;letter-spacing:.02em;flex:1;">
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="copyRecoveryKey('rk_disk_e')" title="Sao chép">📋</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('recoveryKeyModal')">Hủy</button>
+            <button class="btn btn-primary" onclick="saveRecoveryKeys()">💾 Lưu</button>
         </div>
     </div>
 </div>
@@ -1139,7 +1188,7 @@
                                 <th onclick="sortTable('assetTable',8)" style="cursor:pointer;user-select:none;">RAM <span>⇅</span></th>
                                 <th>SSD</th>
                                 <th>HDD</th>
-                                <th onclick="sortTable('assetTable',11)" style="cursor:pointer;user-select:none;">Bitlocker <span>⇅</span></th>
+                                <th>Bitlocker</th>
                                 <th onclick="sortTable('assetTable',12)" style="cursor:pointer;user-select:none;">Trạng Thái <span>⇅</span></th>
                                 <th onclick="sortTable('assetTable',13)" style="cursor:pointer;user-select:none;">User <span>⇅</span></th>
                                 <th>Ghi Chú</th>
@@ -2899,6 +2948,7 @@ function renderAssetTable(list) {
             <td style="font-size:12px;color:var(--text-soft);max-width:150px;">${c.notes||''}</td>
             <td>
                 <div style="display:flex;gap:4px;">
+                    <button class="btn btn-ghost btn-sm" onclick="openRecoveryKeyModal(${c.id})" title="Xem/Sửa BitLocker Recovery Key">👁</button>
                     <button class="btn btn-ghost btn-sm" onclick="openEditComputerModal(${c.id})">✏ Sửa</button>
                     <button class="btn btn-danger btn-sm" onclick="deleteComputer(${c.id},'${c.computer_name}')">🗑</button>
                 </div>
@@ -3095,6 +3145,74 @@ function saveComputer() {
     }).catch(()=>showToast('Lỗi kết nối','danger'));
 }
 
+// ─────────────────────── BITLOCKER RECOVERY KEY (Disk C/D/E) ───────────────────────
+function openRecoveryKeyModal(id) {
+    const c = _allComputers.find(x=>x.id===id);
+    if (!c) return;
+    document.getElementById('rk_id').value   = c.id;
+    document.getElementById('rk_title').textContent = '🔑 Recovery Key: ' + c.computer_name;
+    document.getElementById('rk_disk_c').value    = c.bitlocker_c || '';
+    document.getElementById('rk_disk_c_id').value = c.bitlocker_c_id || '';
+    document.getElementById('rk_disk_d').value    = c.bitlocker_d || '';
+    document.getElementById('rk_disk_d_id').value = c.bitlocker_d_id || '';
+    document.getElementById('rk_disk_e').value    = c.bitlocker_e || '';
+    document.getElementById('rk_disk_e_id').value = c.bitlocker_e_id || '';
+    document.getElementById('recoveryKeyModal').classList.add('show');
+}
+
+function saveRecoveryKeys() {
+    const id = document.getElementById('rk_id').value;
+    if (!id) return;
+    const data = {
+        bitlocker_c: document.getElementById('rk_disk_c').value,
+        bitlocker_c_id: document.getElementById('rk_disk_c_id').value,
+        bitlocker_d: document.getElementById('rk_disk_d').value,
+        bitlocker_d_id: document.getElementById('rk_disk_d_id').value,
+        bitlocker_e: document.getElementById('rk_disk_e').value,
+        bitlocker_e_id: document.getElementById('rk_disk_e_id').value,
+    };
+    fetch(`/api/computers/${id}/bitlocker`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+    }).then(r=>r.json()).then(d=>{
+        if (d.status === 'success') {
+            closeModal('recoveryKeyModal');
+            showToast('Đã lưu Recovery Key','success');
+            loadAssets();
+        } else showToast(d.message || 'Lỗi lưu dữ liệu','danger');
+    }).catch(()=>showToast('Lỗi kết nối','danger'));
+}
+
+function copyRecoveryKey(inputId) {
+    const el = document.getElementById(inputId);
+    if (!el || !el.value) { showToast('Chưa có key để sao chép','warning'); return; }
+
+    // navigator.clipboard.writeText() yêu cầu "secure context" (HTTPS hoặc localhost) — app này
+    // chạy HTTP thường trong mạng nội bộ nên API đó luôn thất bại/không tồn tại. Dùng cách cũ
+    // (chọn text trong input + document.execCommand('copy')) làm fallback, hoạt động trên cả HTTP.
+    function fallbackCopy() {
+        el.removeAttribute('readonly');
+        el.focus();
+        el.select();
+        el.setSelectionRange(0, el.value.length);
+        try {
+            const ok = document.execCommand('copy');
+            if (ok) showToast('Đã sao chép','success');
+            else showToast('Không thể sao chép — vui lòng bôi đen và Ctrl+C thủ công','danger');
+        } catch (e) {
+            showToast('Không thể sao chép — vui lòng bôi đen và Ctrl+C thủ công','danger');
+        }
+        window.getSelection().removeAllRanges();
+    }
+
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(el.value).then(() => {
+            showToast('Đã sao chép','success');
+        }).catch(fallbackCopy);
+    } else {
+        fallbackCopy();
+    }
+}
+
 // ─────────────────────── XÁC NHẬN MẬT KHẨU TRƯỚC KHI XOÁ ───────────────────────
 // Dùng chung cho mọi thao tác xoá nguy hiểm (xoá 1 máy, xoá hàng loạt...) — bắt nhập lại
 // mật khẩu Administrator (chính tài khoản admin đang đăng nhập) để xác nhận, tránh xoá nhầm
@@ -3188,6 +3306,10 @@ function _hoRenderAccountTable(username) {
 function _hoDeviceRowHtml(c) {
     c = c || {};
     const f = (cls, val) => `<input type="text" class="${cls}" value="${(val||'').toString().replace(/"/g,'&quot;')}" style="width:100%;min-width:70px;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;background:var(--card);color:var(--text);font-size:12px;">`;
+    // "Bitlocker" trong biên bản bàn giao = đúng 1 mã Bitlocker duy nhất của máy (cột
+    // "bitlocker" đơn trong Quản Lý Computer) — KHÔNG liên quan gì tới Recovery Key/Identifier
+    // theo từng ổ đĩa C/D/E (2 thứ đó chỉ xem được trong Quản Lý Computer, không in ra biên bản).
+    const bitlockerCombined = c.bitlocker || '';
     return `
         <tr>
             <td class="ho_dev_stt"></td>
@@ -3197,7 +3319,7 @@ function _hoDeviceRowHtml(c) {
             <td>${f('ho_dev_ram', c.ram)}</td>
             <td>${f('ho_dev_ssd', c.ssd)}</td>
             <td>${f('ho_dev_computer', c.computer_name)}</td>
-            <td>${f('ho_dev_bitlocker', c.bitlocker)}</td>
+            <td>${f('ho_dev_bitlocker', bitlockerCombined)}</td>
             <td>${f('ho_dev_accessories', c.accessories !== undefined ? c.accessories : 'Chuột, bàn phím, tai nghe...')}</td>
             <td style="text-align:center;"><button class="btn btn-danger btn-sm" onclick="hoRemoveDeviceRow(this)" title="Xóa dòng">🗑</button></td>
         </tr>`;
