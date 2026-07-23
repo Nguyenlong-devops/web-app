@@ -396,6 +396,28 @@
     </div>
 </div>
 
+<div id="confirmDeletePwdModal" class="modal">
+    <div class="modal-content" style="max-width:420px;">
+        <div class="modal-header">
+            <div class="modal-title">🔒 Xác nhận xoá</div>
+            <button class="close-btn" onclick="closeModal('confirmDeletePwdModal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="delpwd_message" style="font-size:13px;margin-bottom:14px;color:var(--text-soft);"></div>
+            <div class="form-group">
+                <label>Mật khẩu Administrator (tài khoản của bạn)</label>
+                <input type="password" id="delpwd_input" placeholder="Nhập mật khẩu để xác nhận"
+                    style="height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;"
+                    onkeydown="if(event.key==='Enter') submitDeleteConfirm();">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('confirmDeletePwdModal')">Hủy</button>
+            <button class="btn btn-danger" onclick="submitDeleteConfirm()">🗑 Xác nhận xoá</button>
+        </div>
+    </div>
+</div>
+
 <!-- ══════════════════ MODAL: Add/Edit Computer ══════════════════ -->
 <div id="computerModal" class="modal">
     <div class="modal-content" style="max-width:560px;">
@@ -1096,30 +1118,36 @@
                     </select>
                 </div>
             </div>
+            <div id="assetBulkBar" class="content-card" style="padding:10px 16px;margin-bottom:8px;display:none;align-items:center;gap:12px;background:var(--info-bg,#e7f1ff);">
+                <span id="assetBulkCount" style="font-size:13px;font-weight:600;"></span>
+                <button class="btn btn-danger btn-sm" onclick="bulkDeleteSelectedAssets()">🗑 Xoá đã chọn</button>
+                <button class="btn btn-ghost btn-sm" onclick="toggleSelectAllAssets({checked:false})">Bỏ chọn</button>
+            </div>
             <div class="content-card">
                 <div class="table-container" style="max-height:550px;overflow-y:auto;">
                     <table class="modern-table" id="assetTable">
                         <thead>
                             <tr>
-                                <th onclick="sortTable('assetTable',0)" style="cursor:pointer;user-select:none;">Mã Tài Sản <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',1)" style="cursor:pointer;user-select:none;">Thiết Bị <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',2)" style="cursor:pointer;user-select:none;">Tên <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',3)" style="cursor:pointer;user-select:none;">Vị Trí <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',4)" style="cursor:pointer;user-select:none;">Hãng <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',5)" style="cursor:pointer;user-select:none;">Model <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',6)" style="cursor:pointer;user-select:none;">CPU <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',7)" style="cursor:pointer;user-select:none;">RAM <span>⇅</span></th>
+                                <th style="width:36px;"><input type="checkbox" id="assetSelectAll" onchange="toggleSelectAllAssets(this)" title="Chọn tất cả"></th>
+                                <th onclick="sortTable('assetTable',1)" style="cursor:pointer;user-select:none;">Mã Tài Sản <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',2)" style="cursor:pointer;user-select:none;">Thiết Bị <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',3)" style="cursor:pointer;user-select:none;">Tên <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',4)" style="cursor:pointer;user-select:none;">Vị Trí <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',5)" style="cursor:pointer;user-select:none;">Hãng <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',6)" style="cursor:pointer;user-select:none;">Model <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',7)" style="cursor:pointer;user-select:none;">CPU <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',8)" style="cursor:pointer;user-select:none;">RAM <span>⇅</span></th>
                                 <th>SSD</th>
                                 <th>HDD</th>
-                                <th onclick="sortTable('assetTable',10)" style="cursor:pointer;user-select:none;">Bitlocker <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',11)" style="cursor:pointer;user-select:none;">Trạng Thái <span>⇅</span></th>
-                                <th onclick="sortTable('assetTable',12)" style="cursor:pointer;user-select:none;">User <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',11)" style="cursor:pointer;user-select:none;">Bitlocker <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',12)" style="cursor:pointer;user-select:none;">Trạng Thái <span>⇅</span></th>
+                                <th onclick="sortTable('assetTable',13)" style="cursor:pointer;user-select:none;">User <span>⇅</span></th>
                                 <th>Ghi Chú</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="assetTableBody">
-                            <tr><td colspan="15" style="text-align:center;padding:30px;color:var(--text-muted);">Đang tải...</td></tr>
+                            <tr><td colspan="16" style="text-align:center;padding:30px;color:var(--text-muted);">Đang tải...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -2847,12 +2875,14 @@ function loadAssets() {
 function renderAssetTable(list) {
     const tbody = document.getElementById('assetTableBody');
     if (!list.length) {
-        tbody.innerHTML='<tr><td colspan="15" style="text-align:center;padding:30px;color:var(--text-muted);">Chưa có máy nào. Bấm "+ Thêm Máy" để bắt đầu.</td></tr>';
+        tbody.innerHTML='<tr><td colspan="16" style="text-align:center;padding:30px;color:var(--text-muted);">Chưa có máy nào. Bấm "+ Thêm Máy" để bắt đầu.</td></tr>';
+        updateBulkDeleteBar();
         return;
     }
     const statusLabel = {in_use:'<span class="badge badge-success">Đang dùng</span>', storage:'<span class="badge badge-secondary">Lưu kho</span>'};
     tbody.innerHTML = list.map(c=>`
         <tr data-status="${c.status}">
+            <td><input type="checkbox" class="asset-row-checkbox" value="${c.id}" onchange="updateBulkDeleteBar()"></td>
             <td style="font-size:12px;font-family:monospace;">${c.asset_code||'—'}</td>
             <td style="font-size:12px;">${c.device_type||'—'}</td>
             <td><strong style="font-family:monospace;">${c.computer_name||''}</strong></td>
@@ -2875,6 +2905,63 @@ function renderAssetTable(list) {
             </td>
         </tr>
     `).join('');
+    updateBulkDeleteBar();
+}
+
+// ─────────────────────── CHỌN NHIỀU DÒNG + XOÁ HÀNG LOẠT ───────────────────────
+function toggleSelectAllAssets(sourceCheckbox) {
+    const checked = !!sourceCheckbox.checked;
+    document.querySelectorAll('#assetTableBody .asset-row-checkbox').forEach(cb => {
+        // Chỉ tick/bỏ tick những dòng ĐANG HIỂN THỊ (không bị ẩn bởi bộ lọc tìm kiếm/trạng thái)
+        // — tránh xoá nhầm những dòng người dùng không nhìn thấy lúc bấm "Chọn tất cả".
+        const row = cb.closest('tr');
+        if (!row || row.style.display === 'none') return;
+        cb.checked = checked;
+    });
+    updateBulkDeleteBar();
+}
+
+function updateBulkDeleteBar() {
+    const boxes = Array.from(document.querySelectorAll('#assetTableBody .asset-row-checkbox'));
+    const checkedBoxes = boxes.filter(cb => cb.checked);
+    const bar = document.getElementById('assetBulkBar');
+    const countEl = document.getElementById('assetBulkCount');
+    const selectAll = document.getElementById('assetSelectAll');
+
+    if (checkedBoxes.length > 0) {
+        bar.style.display = 'flex';
+        countEl.textContent = `Đã chọn ${checkedBoxes.length} dòng`;
+    } else {
+        bar.style.display = 'none';
+    }
+
+    // Đồng bộ trạng thái checkbox "Chọn tất cả" ở header: tick hết / tick 1 phần (indeterminate) / bỏ tick
+    if (selectAll) {
+        const visibleBoxes = boxes.filter(cb => { const r = cb.closest('tr'); return r && r.style.display !== 'none'; });
+        const visibleChecked = visibleBoxes.filter(cb => cb.checked);
+        selectAll.checked = visibleBoxes.length > 0 && visibleChecked.length === visibleBoxes.length;
+        selectAll.indeterminate = visibleChecked.length > 0 && visibleChecked.length < visibleBoxes.length;
+    }
+}
+
+function bulkDeleteSelectedAssets() {
+    const ids = Array.from(document.querySelectorAll('#assetTableBody .asset-row-checkbox:checked')).map(cb => parseInt(cb.value, 10));
+    if (!ids.length) { showToast('Chưa chọn dòng nào', 'warning'); return; }
+    openDeleteConfirmModal(`Xoá ${ids.length} máy đã chọn? Hành động này không thể hoàn tác. Nhập mật khẩu Administrator để xác nhận.`, (pwd) => {
+        showLoading();
+        fetch('/api/computers/bulk-delete', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ ids, password: pwd })
+        }).then(r=>r.json()).then(d=>{
+            hideLoading();
+            if (d.status === 'success') {
+                showToast(`Đã xoá ${d.deleted_count} máy`, 'success');
+                loadAssets();
+            } else {
+                showToast(d.message || 'Xoá thất bại', 'danger');
+            }
+        }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối', 'danger'); });
+    });
 }
 
 function filterAssetTable() {
@@ -2887,6 +2974,7 @@ function filterAssetTable() {
         const st = row.dataset.status||'';
         row.style.display = ((!f||t.includes(f))&&(!s||st===s))?'':'none';
     }
+    updateBulkDeleteBar();
 }
 
 function filterDomainComputerTable() {
@@ -3007,13 +3095,42 @@ function saveComputer() {
     }).catch(()=>showToast('Lỗi kết nối','danger'));
 }
 
+// ─────────────────────── XÁC NHẬN MẬT KHẨU TRƯỚC KHI XOÁ ───────────────────────
+// Dùng chung cho mọi thao tác xoá nguy hiểm (xoá 1 máy, xoá hàng loạt...) — bắt nhập lại
+// mật khẩu Administrator (chính tài khoản admin đang đăng nhập) để xác nhận, tránh xoá nhầm
+// do bấm nhanh/để quên phiên đăng nhập. Backend xác thực lại qua LDAP bind, không tin tưởng
+// mù quáng dữ liệu gửi từ trình duyệt.
+let _pendingDeleteConfirm = null;  // function(password) => void, chạy sau khi xác nhận đúng mật khẩu
+
+function openDeleteConfirmModal(message, onConfirm) {
+    document.getElementById('delpwd_message').textContent = message;
+    document.getElementById('delpwd_input').value = '';
+    _pendingDeleteConfirm = onConfirm;
+    document.getElementById('confirmDeletePwdModal').classList.add('show');
+    setTimeout(() => document.getElementById('delpwd_input').focus(), 100);
+}
+
+function submitDeleteConfirm() {
+    const pwd = document.getElementById('delpwd_input').value;
+    if (!pwd) { showToast('Vui lòng nhập mật khẩu', 'warning'); return; }
+    const cb = _pendingDeleteConfirm;
+    _pendingDeleteConfirm = null;
+    closeModal('confirmDeletePwdModal');
+    if (cb) cb(pwd);
+}
+
 function deleteComputer(id, name) {
-    if (!confirm(`Xóa máy "${name}" khỏi danh sách tài sản?`)) return;
-    fetch(`/api/computers/${id}`, {method:'DELETE'})
-    .then(r=>r.json()).then(d=>{
-        if (d.status==='success') { showToast(`Đã xóa ${name}`,'success'); loadAssets(); }
-        else showToast(d.message||'Lỗi xóa','danger');
-    }).catch(()=>showToast('Lỗi kết nối','danger'));
+    openDeleteConfirmModal(`Xóa máy "${name}" khỏi danh sách tài sản? Nhập mật khẩu Administrator để xác nhận.`, (pwd) => {
+        showLoading();
+        fetch(`/api/computers/${id}`, {
+            method: 'DELETE', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ password: pwd })
+        }).then(r=>r.json()).then(d=>{
+            hideLoading();
+            if (d.status==='success') { showToast(`Đã xóa ${name}`,'success'); loadAssets(); }
+            else showToast(d.message||'Lỗi xóa','danger');
+        }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối','danger'); });
+    });
 }
 
 function importComputerCSV(input) {
@@ -3024,11 +3141,11 @@ function importComputerCSV(input) {
     .then(r=>r.json()).then(d=>{
         hideLoading(); input.value='';
         if (d.status==='success') {
-            if (d.skipped_count > 0) {
-                const list = d.skipped.slice(0,10).map(s=>`• ${s.asset_code} (${s.computer_name||'—'}) — ${s.reason}`).join('\n');
-                const more = d.skipped.length > 10 ? `\n… và ${d.skipped.length-10} dòng khác` : '';
-                alert(`Import thành công ${d.count} máy.\nBỏ qua ${d.skipped_count} dòng do trùng Mã Tài Sản:\n${list}${more}`);
-                showToast(`Đã import ${d.count} máy, bỏ qua ${d.skipped_count} dòng trùng mã`,'warning');
+            if (d.updated_count > 0) {
+                const list = d.updated.slice(0,10).map(s=>`• ${s.asset_code} (${s.computer_name||'—'})`).join('\n');
+                const more = d.updated.length > 10 ? `\n… và ${d.updated.length-10} dòng khác` : '';
+                alert(`Import xong: tạo mới ${d.count} máy, cập nhật lại ${d.updated_count} máy đã có sẵn mã tài sản:\n${list}${more}`);
+                showToast(`Đã tạo mới ${d.count} + cập nhật ${d.updated_count} máy`,'success');
             } else {
                 showToast(`Import thành công ${d.count} máy`,'success');
             }

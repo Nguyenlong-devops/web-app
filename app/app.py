@@ -464,6 +464,29 @@ def ps_quote(value) -> str:
     dùng (username, tên, OU, group, mật khẩu...) vào bên trong cặp '...' của lệnh PowerShell."""
     return str(value if value is not None else "").replace("'", "''")
 
+def verify_current_user_password(cfg, password):
+    """Bind LDAP lại bằng đúng tài khoản admin đang đăng nhập (session['user']) + mật khẩu vừa
+    nhập, để xác nhận đúng là họ trước khi cho phép thực hiện thao tác nguy hiểm (xoá dữ liệu).
+    Không dùng mật khẩu Administrator dùng chung lưu trong domain_config — mỗi admin xác nhận
+    bằng CHÍNH mật khẩu AD của mình, vừa an toàn hơn (không ai cần biết mật khẩu dùng chung) vừa
+    có thể truy vết đúng người thực hiện qua audit log."""
+    if not password or not cfg:
+        return False
+    username = session.get('user')
+    if not username:
+        return False
+    try:
+        user_dn = f"{username}{cfg['domain_suffix']}"
+        server  = Server(cfg['ldap_host'], get_info=None, connect_timeout=3)
+        conn    = Connection(server, user=user_dn, password=password, authentication='SIMPLE')
+        ok = conn.bind()
+        if ok:
+            conn.unbind()
+        return ok
+    except Exception as e:
+        print(f"verify_current_user_password error: {e}")
+        return False
+
 # ─────────────────────────────────────────────
 #  SSH / PowerShell — dùng config domain hiện tại
 # ─────────────────────────────────────────────
@@ -2080,6 +2103,11 @@ def api_update_computer(cid):
 @domain_required
 @admin_required
 def api_delete_computer(cid):
+    cfg  = current_domain_cfg()
+    data = request.get_json(silent=True) or {}
+    if not verify_current_user_password(cfg, data.get('password', '')):
+        return jsonify({"status": "error", "message": "Mật khẩu không chính xác. Vui lòng nhập lại mật khẩu Administrator để xác nhận xoá."}), 403
+
     conn = get_db_connection(); cur = conn.cursor()
     try:
         cur.execute("SELECT computer_name FROM computers WHERE id=%s", (cid,))
@@ -2091,6 +2119,40 @@ def api_delete_computer(cid):
     except Exception as e:
         conn.rollback(); return jsonify({"status":"error","message":str(e)})
     finally: cur.close(); conn.close()
+
+@app.route('/api/computers/bulk-delete', methods=['POST'])
+@domain_required
+@admin_required
+def api_bulk_delete_computers():
+    """Xoá nhiều tài sản máy tính cùng lúc — dùng cho tính năng tick chọn nhiều dòng + Xoá đã
+    chọn trong bảng Quản Lý Computer. Yêu cầu xác nhận lại mật khẩu admin trước khi xoá."""
+    data = request.get_json() or {}
+    if not verify_current_user_password(cfg=current_domain_cfg(), password=data.get('password', '')):
+        return jsonify({"status": "error", "message": "Mật khẩu không chính xác. Vui lòng nhập lại mật khẩu Administrator để xác nhận xoá."}), 403
+
+    ids = data.get('ids') or []
+    try:
+        ids = [int(i) for i in ids]
+    except (TypeError, ValueError):
+        return jsonify({"status": "error", "message": "Danh sách ID không hợp lệ"})
+    if not ids:
+        return jsonify({"status": "error", "message": "Chưa chọn dòng nào để xoá"})
+
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT computer_name FROM computers WHERE id = ANY(%s)", (ids,))
+        names = [r[0] for r in cur.fetchall()]
+        cur.execute("DELETE FROM computers WHERE id = ANY(%s)", (ids,))
+        deleted_count = cur.rowcount
+        conn.commit()
+        write_log(session['user'], 'BULK_DELETE_COMPUTERS',
+                  detail=f"Xoá {deleted_count} máy: {', '.join(names[:20])}" + (f" +{len(names)-20} khác" if len(names) > 20 else ""))
+        return jsonify({"status": "success", "deleted_count": deleted_count})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        cur.close(); conn.close()
 
 @app.route('/api/domain-computers')
 @domain_required
@@ -2171,7 +2233,7 @@ def api_import_computers():
         return jsonify({"status":"error","message":"Không có file"})
     import csv as csv_mod, io as io_mod
     f = request.files['file']
-    conn = None; cur = None; count = 0
+    conn = None; cur = None
     try:
         raw = f.stream.read()
         # Excel khi lưu lại CSV tiếng Việt thường không giữ UTF-8 (có thể ra ANSI/Windows-1258/1252).
@@ -2193,34 +2255,47 @@ def api_import_computers():
 
         conn = get_db_connection(); cur = conn.cursor()
 
-        # Lấy trước các mã tài sản đã tồn tại trong DB để phát hiện trùng (không tính mã rỗng)
-        cur.execute("SELECT TRIM(asset_code) FROM computers WHERE asset_code IS NOT NULL AND TRIM(asset_code) <> ''")
-        existing_codes = {r[0] for r in cur.fetchall()}
-        seen_in_file = set()
-        skipped = []  # [(asset_code, computer_name, lý do)]
+        # Lấy trước các mã tài sản đã tồn tại trong DB (kèm id) để biết dòng nào cần UPDATE thay
+        # vì INSERT mới. Trước đây gặp mã trùng là bỏ qua hẳn dòng đó (không cập nhật gì) — giờ
+        # đổi sang: mã đã tồn tại -> cập nhật lại các cột của đúng bản ghi đó bằng dữ liệu mới
+        # trong file import (không tạo thêm dòng mới, không tạo trùng mã).
+        cur.execute("SELECT id, TRIM(asset_code) FROM computers WHERE asset_code IS NOT NULL AND TRIM(asset_code) <> ''")
+        existing_id_by_code = {code: cid for cid, code in cur.fetchall()}
+        created = 0
+        updated = 0
+        updated_codes = []  # [(asset_code, computer_name)] — để báo cáo lại cho người dùng
 
         for row in reader:
             asset_code = (row.get('Mã Tài Sản') or row.get('Mã') or '').strip()
             computer_name = row.get('Tên') or row.get('Tên Máy') or ''
-
-            if asset_code:
-                if asset_code in existing_codes:
-                    skipped.append((asset_code, computer_name, 'đã tồn tại trong hệ thống'))
-                    continue
-                if asset_code in seen_in_file:
-                    skipped.append((asset_code, computer_name, 'trùng lặp ngay trong file import'))
-                    continue
-
             st = 'in_use' if 'dụng' in row.get('Trạng Thái', row.get('Tình Trạng','') or '') else 'storage'
-            cur.execute("""
-                INSERT INTO computers (asset_code,device_type,computer_name,location,brand,model,cpu,ram,ssd,hdd,bitlocker,status,notes,updated_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
-            """, (asset_code, row.get('Thiết Bị') or row.get('Loại') or '', computer_name,
-                  row.get('Vị Trí') or '', row.get('Hãng') or '', row.get('Model') or '',
-                  row.get('CPU') or '', row.get('RAM') or '', row.get('SSD') or '', row.get('HDD') or '',
-                  row.get('Bitlocker') or '', st, row.get('Ghi Chú') or ''))
-            new_id = cur.fetchone()[0]
-            if asset_code: seen_in_file.add(asset_code)
+            values = (row.get('Thiết Bị') or row.get('Loại') or '', computer_name,
+                      row.get('Vị Trí') or '', row.get('Hãng') or '', row.get('Model') or '',
+                      row.get('CPU') or '', row.get('RAM') or '', row.get('SSD') or '', row.get('HDD') or '',
+                      row.get('Bitlocker') or '', st, row.get('Ghi Chú') or '')
+
+            existing_id = existing_id_by_code.get(asset_code) if asset_code else None
+            if existing_id:
+                # Mã tài sản đã có sẵn trong hệ thống (hoặc đã được UPDATE/INSERT ở 1 dòng trước
+                # đó trong CÙNG file này) -> cập nhật lại các cột thay vì tạo dòng mới.
+                cur.execute("""
+                    UPDATE computers SET device_type=%s, computer_name=%s, location=%s, brand=%s,
+                        model=%s, cpu=%s, ram=%s, ssd=%s, hdd=%s, bitlocker=%s, status=%s, notes=%s,
+                        updated_at=NOW()
+                    WHERE id=%s
+                """, values + (existing_id,))
+                new_id = existing_id
+                updated += 1
+                updated_codes.append((asset_code, computer_name))
+            else:
+                cur.execute("""
+                    INSERT INTO computers (asset_code,device_type,computer_name,location,brand,model,cpu,ram,ssd,hdd,bitlocker,status,notes,updated_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
+                """, (asset_code,) + values)
+                new_id = cur.fetchone()[0]
+                created += 1
+                if asset_code:
+                    existing_id_by_code[asset_code] = new_id  # để các dòng SAU trong cùng file (nếu trùng mã) sẽ UPDATE thay vì insert trùng
 
             # Cột User trong CSV có thể chứa nhiều user cách nhau dấu phẩy
             users_str = (row.get('User','') or '').strip()
@@ -2230,15 +2305,14 @@ def api_import_computers():
                         "INSERT INTO user_computers (sam_account_name, computer_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
                         (u, new_id)
                     )
-            count += 1
         conn.commit()
-        skip_detail = f", bỏ qua {len(skipped)} dòng trùng mã tài sản" if skipped else ""
-        write_log(session['user'], 'IMPORT_COMPUTERS', detail=f"imported {count} rows{skip_detail}")
+        update_detail = f", cập nhật {updated} dòng đã có sẵn mã tài sản" if updated else ""
+        write_log(session['user'], 'IMPORT_COMPUTERS', detail=f"tạo mới {created} dòng{update_detail}")
         return jsonify({
             "status": "success",
-            "count": count,
-            "skipped_count": len(skipped),
-            "skipped": [{"asset_code": a, "computer_name": n, "reason": r} for a, n, r in skipped]
+            "count": created,
+            "updated_count": updated,
+            "updated": [{"asset_code": a, "computer_name": n} for a, n in updated_codes]
         })
     except Exception as e:
         if conn: conn.rollback()
