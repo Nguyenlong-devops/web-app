@@ -247,12 +247,12 @@
 <div id="switchDomainModal" class="modal">
     <div class="modal-content" style="max-width:440px;">
         <div class="modal-header">
-            <div class="modal-title">🔀 Chuyển Domain Nhanh</div>
+            <div class="modal-title">🔀 Switch Domain</div>
             <button class="close-btn" onclick="closeModal('switchDomainModal')">✕</button>
         </div>
         <div class="modal-body">
             <div class="form-group">
-                <label>Chọn domain muốn đăng nhập vào</label>
+                <label>Chọn domain</label>
                 <div id="switchDomainList" class="sw-domain-list">
                     <div class="sw-domain-row sw-domain-empty">Đang tải danh sách domain...</div>
                 </div>
@@ -950,7 +950,7 @@
             <div class="card-header">
                 <div class="card-title-block">
                     <div class="card-title">License Assignment History</div>
-                    <div class="card-subtitle">Danh sách license đã cấp — có thể thu hồi từng dòng</div>
+                    <div class="card-subtitle">Danh sách license đã cấp</div>
                 </div>
                 <div class="card-actions" style="gap:6px;">
                     <input type="text" id="assignSearchInput" class="search-box" placeholder="Tìm..." oninput="filterAssignTable()">
@@ -1128,7 +1128,7 @@
         <div class="page-header">
             <div>
                 <div class="page-title">Quản Lý Computer</div>
-                <div class="page-subtitle" id="cmp-page-subtitle">Tài sản máy tính và máy đã join domain</div>
+<!--                 <div class="page-subtitle" id="cmp-page-subtitle">Tài sản máy tính và máy đã join domain</div> --> <br>
             </div>
             <div class="page-actions">
                 <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
@@ -2948,7 +2948,7 @@ function renderAssetTable(list) {
             <td style="font-size:12px;color:var(--text-soft);max-width:150px;">${c.notes||''}</td>
             <td>
                 <div style="display:flex;gap:4px;">
-                    <button class="btn btn-ghost btn-sm" onclick="openRecoveryKeyModal(${c.id})" title="Xem/Sửa BitLocker Recovery Key">👁</button>
+                    <button class="btn btn-ghost btn-sm" onclick="openRecoveryKeyModal(${c.id})" title="BitLocker Recovery Key">👁</button>
                     <button class="btn btn-ghost btn-sm" onclick="openEditComputerModal(${c.id})">✏ Sửa</button>
                     <button class="btn btn-danger btn-sm" onclick="deleteComputer(${c.id},'${c.computer_name}')">🗑</button>
                 </div>
