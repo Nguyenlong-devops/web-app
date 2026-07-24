@@ -10,14 +10,16 @@ services:
       POSTGRES_PASSWORD: ${AD_DB_PASS:-AureoleIT@2026}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # ports:
+    #   - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
     restart: always
+    networks:
+      - it_dashboard_net
 
   web-app:
     build: .
@@ -30,14 +32,20 @@ services:
       - DB_HOST=db
       - DB_NAME=it_dashboard
       - DB_USER=postgres
-      - DB_PASS=${AD_DB_PASS:-AureoleIT@2026}
-      - AD_HOST=192.168.99.84
-      - AD_USER=Administrator
-      - AD_PASS=${AD_PASS}
+      - DB_PASS=${AD_DB_PASS:?Missing AD_DB_PASS - set it in your .env file}
+      # - AD_HOST=192.168.99.84
+      # - AD_USER=Administrator
+      # - AD_PASS=${AD_PASS}
     depends_on:
       db:
         condition: service_healthy
     restart: always
+    networks:
+      - it_dashboard_net
+
+networks:
+  it_dashboard_net:
+    driver: bridge
 
 volumes:
   pgdata:
