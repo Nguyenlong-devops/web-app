@@ -1272,19 +1272,30 @@
             </div>
         </div>
 
-        <div class="content-card" style="padding:20px;margin-bottom:16px;">
-            <div class="form-group">
-                <label>Chọn nhân viên (AD User)</label>
-                <div style="display:flex;gap:8px;align-items:center;max-width:420px;">
+        <div class="content-card ho-picker-card" style="padding:20px;margin-bottom:16px;">
+            <div class="ho-picker-row">
+                <div class="form-group ho-picker-col">
+                    <label>Chọn nhân viên (AD User)</label>
                     <select id="ho_user" onchange="loadHandoverInfo()"
                         style="height:34px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
                         <option value="">-- Chọn nhân viên --</option>
                     </select>
-                    <button type="button" id="ho_clear_btn" class="btn btn-secondary btn-sm" style="display:none;white-space:nowrap;" onclick="clearHandoverDate()" title="Xoá ngày bàn giao đã ghi nhận, bắt đầu bàn giao mới">↺ Clear</button>
+                </div>
+                <div class="ho-status-col">
+                    <div id="ho_status_empty" class="ho-status-empty">
+                        👤 Chọn nhân viên bên trái để xem tình trạng bàn giao thiết bị
+                    </div>
+                    <div id="ho_status_card" class="ho-status-card" style="display:none;">
+                        <div class="ho-status-icon" id="ho_status_icon">📦</div>
+                        <div class="ho-status-text">
+                            <div class="ho-status-label">Tình trạng bàn giao</div>
+                            <div id="ho_date_status" class="ho-status-value"></div>
+                        </div>
+                        <button type="button" id="ho_clear_btn" class="btn btn-secondary btn-sm" style="display:none;white-space:nowrap;" onclick="clearHandoverDate()" title="Xoá ngày bàn giao đã ghi nhận, bắt đầu bàn giao mới">↺ Clear</button>
+                    </div>
                 </div>
             </div>
-            <div id="ho_date_status" style="display:none;font-size:12px;color:var(--text-soft);margin-top:6px;"></div>
-            <div id="ho_no_computer_hint" style="display:none;font-size:12px;color:var(--warning,#c77700);margin-top:8px;">
+            <div id="ho_no_computer_hint" style="display:none;font-size:12px;color:var(--warning,#c77700);margin-top:12px;">
                 ⚠  Nhân viên này chưa được gán thiết bị nào.
             </div>
         </div>
@@ -1613,6 +1624,98 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
 </div>
 
 <style>
+/* ════════════════════════════════════════════════════════════════
+   THANH CUỘN (SCROLLBAR) — làm đẹp & dễ thấy hơn mặc định trình
+   duyệt. Áp dụng toàn app: bảng (table-container), danh sách dài,
+   modal... Bo tròn, đủ dày để dễ bấm/kéo, đổi màu rõ khi hover.
+   ════════════════════════════════════════════════════════════════ */
+* {
+    scrollbar-width: auto;                                    /* Firefox */
+    scrollbar-color: rgba(0,120,212,.32) var(--bg-secondary, #e9edf2);
+}
+*::-webkit-scrollbar {                                        /* Chrome / Edge / Safari */
+    width: 14px;
+    height: 14px;
+}
+*::-webkit-scrollbar-track {
+    background: var(--bg-secondary, #e9edf2);
+    border-radius: 10px;
+}
+*::-webkit-scrollbar-thumb {
+    background-color: rgba(0,120,212,.32);                    /* nhạt hơn bản trước — vẫn nhận ra ngay nhưng không gắt mắt */
+    background-clip: padding-box;
+    border: 3px solid transparent;                            /* tạo khoảng đệm quanh thumb -> nhìn như "viên thuốc" nổi giữa track */
+    border-radius: 10px;
+    min-height: 44px;
+    min-width: 44px;
+}
+*::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(0,120,212,.55);                    /* đậm hơn khi hover/kéo để vẫn dễ thao tác */
+    border-width: 2px;                                        /* thumb "phình" nhẹ khi hover -> dễ nhận biết đang tương tác được */
+}
+*::-webkit-scrollbar-thumb:active {
+    background-color: rgba(0,120,212,.65);
+}
+*::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+html[data-theme="dark"] * {
+    scrollbar-color: rgba(255,255,255,.22) rgba(255,255,255,.08);
+}
+html[data-theme="dark"] *::-webkit-scrollbar-track {
+    background: rgba(255,255,255,.08);
+}
+html[data-theme="dark"] *::-webkit-scrollbar-thumb {
+    background-color: rgba(255,255,255,.22);
+    border-color: transparent;
+}
+html[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255,255,255,.38);
+}
+html[data-theme="dark"] *::-webkit-scrollbar-thumb:active {
+    background-color: rgba(255,255,255,.48);
+}
+
+/* Bảng dữ liệu (table-container) thường có cả 2 chiều cuộn — giữ thanh cuộn ngang luôn hiện
+   rõ ràng ngay dưới bảng thay vì ẩn/mờ, đồng thời bo góc khớp với khung bảng cho liền mạch. */
+.table-container, .scroll-area {
+    scrollbar-gutter: stable;
+}
+.table-container::-webkit-scrollbar,
+.scroll-area::-webkit-scrollbar {
+    width: 14px;
+    height: 14px;
+}
+
+</style>
+<style>
+/* ── Bàn Giao Thiết Bị: khung "Chọn nhân viên" — chia 2 cột thay vì 1 cột hẹp bên trái với
+   khoảng trắng lớn bên phải như trước. Cột trái là ô chọn nhân viên (rộng cố định), cột phải
+   là "thẻ trạng thái" bàn giao (rỗng -> gợi ý chọn nhân viên; đã chọn -> ngày bàn giao + nút
+   Clear gộp chung 1 khối, canh giữa theo chiều dọc) — lấp đầy khoảng trống và trình bày thông
+   tin rõ ràng, cân đối hơn thay vì dòng chữ nhỏ lạc lõng bên dưới. ── */
+.ho-picker-row { display:flex; gap:20px; align-items:stretch; flex-wrap:wrap; }
+.ho-picker-col { flex:0 0 340px; max-width:340px; margin:0; }
+.ho-status-col { flex:1 1 260px; min-width:240px; display:flex; }
+.ho-status-empty {
+    flex:1; display:flex; align-items:center; justify-content:center; text-align:center;
+    gap:8px; border:1.5px dashed var(--border-strong); border-radius:var(--r-md);
+    padding:16px 20px; color:var(--text-muted); font-size:13px; background:var(--bg-secondary);
+}
+.ho-status-card {
+    flex:1; display:flex; align-items:center; gap:14px; padding:14px 18px;
+    border:1px solid var(--border-strong); border-radius:var(--r-md); background:var(--bg-secondary);
+}
+.ho-status-icon { font-size:24px; line-height:1; flex-shrink:0; }
+.ho-status-text { flex:1; min-width:0; }
+.ho-status-label {
+    font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--text-muted); margin-bottom:3px;
+}
+.ho-status-value { font-size:13px; color:var(--text); font-weight:600; }
+.ho-status-value.ho-status-none { font-weight:400; color:var(--text-soft); }
+
 /* ── Bảng "Quản Lý Group": chia đều cột thay vì tự co theo nội dung (gây dư khoảng trắng bên
    phải khi cột Actions có nhiều nút). table-layout:fixed + width % cụ thể cho từng cột để
    bảng luôn lấp đầy 100% chiều rộng khung chứa, cân đối giữa 4 cột. ── */
@@ -2055,11 +2158,11 @@ function filterUserTable() {
     const summaryEl = document.getElementById('userFilterSummary');
     if (summaryEl) {
         if (status === 'active') {
-            summaryEl.textContent = `Đang hiển thị ${shownCount} user Active`;
+            summaryEl.textContent = `Có ${shownCount} user Active`;
         } else if (status === 'disabled') {
-            summaryEl.textContent = `Đang hiển thị ${shownCount} user Disabled`;
+            summaryEl.textContent = `Có ${shownCount} user Disabled`;
         } else if (f) {
-            summaryEl.textContent = `Đang hiển thị ${shownCount} user (${activeCount} Active, ${disabledCount} Disabled)`;
+            summaryEl.textContent = `Có ${shownCount} user (${activeCount} Active, ${disabledCount} Disabled)`;
         } else {
             summaryEl.textContent = '';
         }
@@ -3692,27 +3795,43 @@ function _renderAndPrintHandover(ctx, handoverDateIso) {
     setTimeout(()=>window.print(), 100);
 }
 
-// Nút "Clear" cạnh ô chọn nhân viên — chỉ hiện khi user đã từng có ngày bàn giao được ghi nhận.
+// Thẻ trạng thái bàn giao (cạnh ô chọn nhân viên) — 3 trạng thái:
+// 1) Chưa chọn nhân viên -> hiện gợi ý rỗng.
+// 2) Đã chọn, chưa từng bàn giao -> hiện thẻ với icon 📦, không có nút Clear.
+// 3) Đã chọn, đã có ngày bàn giao lần đầu -> hiện thẻ với icon 📅 + ngày + nút Clear.
 function _hoRefreshClearButton(username) {
-    const btn = document.getElementById('ho_clear_btn');
+    const btn      = document.getElementById('ho_clear_btn');
     const statusEl = document.getElementById('ho_date_status');
-    if (!btn || !username) { if (btn) btn.style.display = 'none'; if (statusEl) statusEl.style.display = 'none'; return; }
+    const emptyEl  = document.getElementById('ho_status_empty');
+    const cardEl   = document.getElementById('ho_status_card');
+    const iconEl   = document.getElementById('ho_status_icon');
+    if (!username) {
+        if (btn) btn.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = '';
+        if (cardEl) cardEl.style.display = 'none';
+        return;
+    }
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (cardEl) cardEl.style.display = '';
     fetch('/api/handover-date/' + encodeURIComponent(username))
     .then(r => r.json())
     .then(data => {
         if (data.handover_date) {
-            btn.style.display = '';
-            if (statusEl) {
-                const [y, m, d] = data.handover_date.split('-');
-                statusEl.textContent = `📅 Đã bàn giao lần đầu ngày ${d}/${m}/${y}`;
-                statusEl.style.display = '';
-            }
+            const [y, m, d] = data.handover_date.split('-');
+            if (iconEl) iconEl.textContent = '📅';
+            if (statusEl) { statusEl.textContent = `Đã bàn giao lần đầu ngày ${d}/${m}/${y}`; statusEl.classList.remove('ho-status-none'); }
+            if (btn) btn.style.display = '';
         } else {
-            btn.style.display = 'none';
-            if (statusEl) statusEl.style.display = 'none';
+            if (iconEl) iconEl.textContent = '📦';
+            if (statusEl) { statusEl.textContent = 'Chưa từng bàn giao — ngày sẽ được ghi nhận ở lần in biên bản đầu tiên'; statusEl.classList.add('ho-status-none'); }
+            if (btn) btn.style.display = 'none';
         }
     })
-    .catch(()=>{ btn.style.display = 'none'; if (statusEl) statusEl.style.display = 'none'; });
+    .catch(()=>{
+        if (iconEl) iconEl.textContent = '⚠';
+        if (statusEl) { statusEl.textContent = 'Không tải được trạng thái bàn giao'; statusEl.classList.add('ho-status-none'); }
+        if (btn) btn.style.display = 'none';
+    });
 }
 
 function clearHandoverDate() {
