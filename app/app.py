@@ -237,6 +237,15 @@ def init_db():
             ou_dn      VARCHAR(512) NOT NULL,
             UNIQUE(section, ou_dn)
         )""",
+
+        # 12. Bảng lưu ngày bàn giao ĐẦU TIÊN của mỗi nhân viên — chỉ ghi 1 lần (lần in biên
+        # bản bàn giao đầu tiên), các lần in sau (kể cả biên bản thu hồi) đều tham chiếu lại
+        # đúng ngày này thay vì lấy ngày hiện tại. "Clear" sẽ xoá dòng này để bắt đầu lại.
+        """CREATE TABLE IF NOT EXISTS handover_records (
+            username        VARCHAR(128) PRIMARY KEY,
+            handover_date   DATE NOT NULL,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )""",
     ]
 
     for sql in steps:
@@ -1316,55 +1325,6 @@ def create_group():
         return jsonify({"status": "error", "message": err.strip() or "Tạo group thất bại (không rõ lý do)."})
     return jsonify({"status": "success", "group": group_name})
 
-@app.route('/api/delete-group', methods=['POST'])
-@domain_required
-@admin_required
-def delete_group():
-    """Xoá vĩnh viễn 1 group khỏi AD. Yêu cầu xác thực LẠI bằng đúng tài khoản + mật khẩu của
-    1 admin (bind LDAP thật, không chỉ so sánh chuỗi với mật khẩu đã lưu) — mạnh hơn hẳn kiểu xác
-    nhận "nhập lại mật khẩu Administrator" cũ, vì bắt buộc phải là tài khoản có quyền admin thật
-    sự tại THỜI ĐIỂM xoá (tài khoản đó có thể đã bị vô hiệu hoá/đổi mật khẩu/rút quyền sau này)."""
-    cfg = current_domain_cfg()
-    data = request.get_json() or {}
-    group_name = (data.get('group_name') or '').strip()
-    admin_user = (data.get('admin_user') or '').strip()
-    admin_pass = data.get('admin_pass') or ''
-
-    if not group_name:
-        return jsonify({"status": "error", "message": "Thiếu tên group."})
-    if not admin_user or not admin_pass:
-        return jsonify({"status": "error", "message": "Vui lòng nhập đầy đủ tài khoản và mật khẩu Admin."})
-
-    # Bind LDAP thật với tài khoản vừa nhập — xác nhận (1) đúng mật khẩu và (2) đúng là thành
-    # viên nhóm admin, y hệt bước kiểm tra lúc đăng nhập.
-    user_dn = f"{admin_user}{cfg['domain_suffix']}"
-    try:
-        server = Server(cfg['ldap_host'], get_info=None, connect_timeout=3)
-        conn   = Connection(server, user=user_dn, password=admin_pass, authentication='SIMPLE')
-        if not conn.bind():
-            return jsonify({"status": "error", "message": "Sai tài khoản hoặc mật khẩu Admin."}), 403
-
-        conn.search(search_base=cfg['base_dn'], search_filter=f'(sAMAccountName={admin_user})', attributes=['memberOf'])
-        is_target_admin = False
-        if conn.entries:
-            groups = conn.entries[0].memberOf.values if 'memberOf' in conn.entries[0] else []
-            admin_keywords = [cfg['admin_group_dn'].lower(), "cn=domain admins", "cn=administrators,cn=builtin"]
-            is_target_admin = any(any(kw in g.lower() for kw in admin_keywords) for g in groups)
-        conn.unbind()
-
-        if not is_target_admin:
-            return jsonify({"status": "error", "message": f"Tài khoản '{admin_user}' không có quyền Admin."}), 403
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"Không xác thực được: {e}"}), 500
-
-    ps_cmd = f"Import-Module ActiveDirectory -DisableNameChecking; Remove-ADGroup -Identity '{ps_quote(group_name)}' -Confirm:$false"
-    out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
-    write_log(session['user'], 'DELETE_GROUP', target=group_name,
-              detail=f"Xác thực bởi admin={admin_user}, exit={ec}")
-    if ec != 0:
-        return jsonify({"status": "error", "message": err.strip() or "Xóa group thất bại (không rõ lý do)."})
-    return jsonify({"status": "success"})
-
 # ─────────────────────────────────────────────
 #  Edit user AD
 # ─────────────────────────────────────────────
@@ -1673,6 +1633,70 @@ def api_log_handover():
     write_log(session['user'], 'HANDOVER_DEVICE', target=f"{full_name} ({username})",
               detail=f"In biên bản bàn giao — Thiết bị: {device_summary}")
     return jsonify({"status":"success"})
+
+# ─────────────────────────────────────────────
+#  Ngày bàn giao ĐẦU TIÊN của mỗi nhân viên — dùng cho biên bản bàn giao/thu hồi
+# ─────────────────────────────────────────────
+@app.route('/api/handover-date/<username>', methods=['GET'])
+@domain_required
+@admin_required
+def api_get_handover_date(username):
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT handover_date FROM handover_records WHERE username=%s", (username,))
+        row = cur.fetchone()
+        return jsonify({"handover_date": row[0].isoformat() if row else None})
+    finally:
+        cur.close(); conn.close()
+
+@app.route('/api/handover-date', methods=['POST'])
+@domain_required
+@admin_required
+def api_save_handover_date():
+    """Lưu ngày bàn giao ĐẦU TIÊN cho 1 nhân viên — chỉ ghi nếu CHƯA có (ON CONFLICT DO
+    NOTHING), để lần in sau không vô tình ghi đè ngày đã chốt. Luôn trả về ngày ĐANG lưu
+    trong DB sau thao tác (có thể khác ngày gửi lên, nếu đã tồn tại từ trước)."""
+    data     = request.get_json() or {}
+    username = (data.get('username') or '').strip()
+    date_str = (data.get('handover_date') or '').strip()
+    if not username or not date_str:
+        return jsonify({"status": "error", "message": "Thiếu username hoặc ngày bàn giao"})
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO handover_records (username, handover_date) VALUES (%s, %s) "
+            "ON CONFLICT (username) DO NOTHING",
+            (username, date_str)
+        )
+        conn.commit()
+        cur.execute("SELECT handover_date FROM handover_records WHERE username=%s", (username,))
+        row = cur.fetchone()
+        write_log(session['user'], 'SAVE_HANDOVER_DATE', target=username,
+                  detail=f"handover_date={row[0].isoformat() if row else date_str}")
+        return jsonify({"status": "success", "handover_date": row[0].isoformat() if row else date_str})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        cur.close(); conn.close()
+
+@app.route('/api/handover-date/<username>', methods=['DELETE'])
+@domain_required
+@admin_required
+def api_clear_handover_date(username):
+    """Nút 'Clear' — xoá ngày bàn giao đã ghi nhận, để in biên bản bàn giao mới cho user này
+    (vd cấp lại máy mới sau khi đã thu hồi máy cũ)."""
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM handover_records WHERE username=%s", (username,))
+        conn.commit()
+        write_log(session['user'], 'CLEAR_HANDOVER_DATE', target=username)
+        return jsonify({"status": "success"})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        cur.close(); conn.close()
 
 # ─────────────────────────────────────────────
 #  API — user licenses
@@ -2005,6 +2029,31 @@ def api_edit_group():
 
     write_log(session['user'], 'EDIT_GROUP', target=new_name,
               detail=f"dn={dn}, old_name={old_name}, new_name={new_name}, description={description[:200]}")
+    return jsonify({"status": "success"})
+
+@app.route('/api/delete-group', methods=['POST'])
+@domain_required
+@admin_required
+def api_delete_group():
+    """Xoá hẳn 1 group khỏi AD — yêu cầu nhập lại mật khẩu của chính admin đang đăng nhập để
+    xác nhận (giống thao tác xoá computer), tránh xoá nhầm."""
+    cfg  = current_domain_cfg()
+    data = request.get_json() or {}
+    dn   = (data.get('dn') or '').strip()
+    name = (data.get('name') or '').strip()
+    if not verify_current_user_password(cfg, data.get('password', '')):
+        return jsonify({"status": "error", "message": "Mật khẩu không chính xác. Vui lòng nhập lại mật khẩu để xác nhận xoá."}), 403
+    if not dn:
+        return jsonify({"status": "error", "message": "Thiếu Distinguished Name của group"})
+
+    out, err, ec = run_powershell_ssh(
+        f"Import-Module ActiveDirectory -DisableNameChecking; "
+        f"Remove-ADGroup -Identity '{ps_quote(dn)}' -Confirm:$false",
+        cfg, return_stderr=True)
+    if ec != 0:
+        return jsonify({"status": "error", "message": err.strip() or "Xoá group thất bại"})
+
+    write_log(session['user'], 'DELETE_GROUP', target=name or dn, detail=f"dn={dn}")
     return jsonify({"status": "success"})
 
 # ─────────────────────────────────────────────
