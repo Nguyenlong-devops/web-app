@@ -389,9 +389,42 @@
                 <textarea id="eg_description" rows="3" style="padding:8px 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;font-family:inherit;resize:vertical;"></textarea>
             </div>
         </div>
+        <div class="modal-footer" style="justify-content:space-between;">
+            <button class="btn btn-danger" onclick="openDeleteGroupModal()">🗑 Xóa Group</button>
+            <div style="display:flex;gap:8px;">
+                <button class="btn btn-secondary" onclick="closeModal('editGroupModal')">Hủy</button>
+                <button class="btn btn-primary" onclick="submitEditGroup()">💾 Lưu</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════ MODAL: Xác nhận Xóa Group ══════════════════ -->
+<div id="deleteGroupModal" class="modal">
+    <div class="modal-content" style="max-width:420px;">
+        <div class="modal-header">
+            <div class="modal-title" style="color:var(--danger);">⚠ Xác nhận xóa Group</div>
+            <button class="close-btn" onclick="closeDeleteGroupModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <p style="margin-bottom:14px; font-size:13px; color:var(--text-soft);">
+                Thao tác này sẽ xóa <strong id="dg_group_name_label"></strong> vĩnh viễn khỏi Active Directory, không thể hoàn tác.
+            </p>
+            <div class="form-group" style="margin-bottom:10px;">
+                <label>Tài khoản Admin</label>
+                <input type="text" id="dg_admin_user" class="search-box" placeholder="Nhập user"
+                       style="width:100%; padding-left:14px; height:36px;" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>Mật khẩu</label>
+                <input type="password" id="dg_admin_pass" class="search-box" placeholder="Mật khẩu Admin"
+                       style="width:100%; padding-left:14px; height:36px;" autocomplete="current-password"
+                       onkeydown="if(event.key==='Enter') submitDeleteGroup()">
+            </div>
+        </div>
         <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="closeModal('editGroupModal')">Hủy</button>
-            <button class="btn btn-primary" onclick="submitEditGroup()">💾 Lưu</button>
+            <button class="btn btn-secondary" onclick="closeDeleteGroupModal()">Hủy</button>
+            <button class="btn btn-danger" onclick="submitDeleteGroup()">🗑 Xác nhận xóa</button>
         </div>
     </div>
 </div>
@@ -822,7 +855,7 @@
             <div class="card-header">
                 <div class="card-title-block">
                     <div class="card-title">Active Directory Users</div>
-                    <div class="card-subtitle">Tổng <strong>{{ ad_users|length }}</strong> user trong domain</div>
+                    <div class="card-subtitle">Tổng <strong>{{ ad_users|length }}</strong> user trong domain<span id="userFilterCount"></span></div>
                 </div>
                 <div class="card-actions" style="flex-wrap:wrap;gap:6px;">
                     <input type="text" id="userSearchInput" class="search-box" placeholder="Tìm user..." oninput="filterUserTable()">
@@ -2003,17 +2036,40 @@ function confirmLicenseSave(e) {
 
 // ─────────────────────── SEARCH + SORT ───────────────────────
 function filterUserTable() {
-    const f      = (document.getElementById('userSearchInput').value || '').toUpperCase();
+    const rawSearch = document.getElementById('userSearchInput').value || '';
+    const f      = rawSearch.toUpperCase();
     const status = (document.getElementById('userStatusFilter') || {}).value || '';
     const rows   = document.getElementById('userTable').getElementsByTagName('tr');
+    let visibleCount = 0;
     for (let i = 1; i < rows.length; i++) {
         const row      = rows[i];
         const text     = Array.from(row.getElementsByTagName('td')).map(c=>c.textContent).join(' ').toUpperCase();
         const rStatus  = row.dataset.status || '';
         const textOk   = !f      || text.includes(f);
         const statusOk = !status || rStatus === status;
-        row.style.display = (textOk && statusOk) ? '' : 'none';
+        const show     = textOk && statusOk;
+        row.style.display = show ? '' : 'none';
+        if (show) visibleCount++;
     }
+
+    // Hiện thêm dòng đếm số user đang hiển thị theo filter — chỉ hiện khi có filter đang áp dụng
+    // (search text hoặc chọn trạng thái), không hiện thừa khi đang xem "Tất cả trạng thái" + để trống ô tìm.
+    const countEl = document.getElementById('userFilterCount');
+    if (countEl) {
+        if (f || status) {
+            const statusLabel = status === 'active' ? 'Active' : status === 'disabled' ? 'Disabled' : '';
+            countEl.textContent = ` — Đang hiển thị ${visibleCount} user${statusLabel ? ' (' + statusLabel + ')' : ''}`;
+        } else {
+            countEl.textContent = '';
+        }
+    }
+
+    // Nhớ lại trạng thái filter (search + status) để khôi phục sau khi trang tự location.reload()
+    // (vd sau khi Bật/Tắt user hoặc Sửa User) — trước đây bị mất, luôn quay về "Tất cả trạng thái".
+    try {
+        sessionStorage.setItem('pv_user_search', rawSearch);
+        sessionStorage.setItem('pv_user_status_filter', status);
+    } catch (e) {}
 }
 
 function filterLicenseTable() {
@@ -2784,7 +2840,41 @@ function submitEditGroup() {
         }
     }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối', 'danger'); });
 }
-let _mvGroupDn = null;
+
+// ── Xóa Group (yêu cầu xác thực lại bằng tài khoản Admin qua LDAP) ──
+function openDeleteGroupModal() {
+    if (!_egOldName) { showToast('Thiếu tên group', 'danger'); return; }
+    document.getElementById('dg_group_name_label').textContent = `"${_egOldName}"`;
+    document.getElementById('dg_admin_user').value = '';
+    document.getElementById('dg_admin_pass').value = '';
+    document.getElementById('deleteGroupModal').classList.add('show');
+    setTimeout(()=>document.getElementById('dg_admin_user').focus(), 100);
+}
+function closeDeleteGroupModal() {
+    document.getElementById('deleteGroupModal').classList.remove('show');
+}
+function submitDeleteGroup() {
+    const adminUser = document.getElementById('dg_admin_user').value.trim();
+    const adminPass = document.getElementById('dg_admin_pass').value;
+    if (!adminUser || !adminPass) { showToast('Vui lòng nhập đầy đủ tài khoản và mật khẩu Admin', 'warning'); return; }
+    if (!_egOldName) { showToast('Thiếu tên group', 'danger'); return; }
+    showLoading();
+    fetch('/api/delete-group', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ group_name: _egOldName, admin_user: adminUser, admin_pass: adminPass })
+    }).then(r=>r.json()).then(d=>{
+        hideLoading();
+        if (d.status === 'success') {
+            closeDeleteGroupModal();
+            closeModal('editGroupModal');
+            showToast(`Đã xóa group "${_egOldName}"`, 'success');
+            setTimeout(() => location.reload(), 800);
+        } else {
+            showToast(d.message || 'Xóa group thất bại', 'danger');
+        }
+    }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối', 'danger'); });
+}
+
 function openMoveGroupModal(dn, name) {
     _mvGroupDn = dn;
     document.getElementById('mv_group_name').textContent = name || dn;
@@ -3678,7 +3768,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Modal close on backdrop click
-    ['passwordModal','revokeModal','userEditModal','createGroupModal','groupMembersModal','computerModal',
+    ['passwordModal','revokeModal','userEditModal','createGroupModal','editGroupModal','deleteGroupModal','groupMembersModal','computerModal',
      'create-user-panel','license-panel','assign-license-panel'].forEach(id => {
         const m = document.getElementById(id);
         if (m) m.addEventListener('click', e => { if (e.target===m) m.classList.remove('show'); });
@@ -3700,6 +3790,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 showSection(savedSection, navBtn);
             }
         }
+    } catch (e) {}
+
+    // Khôi phục lại ô tìm kiếm + filter trạng thái (Active/Disabled) của bảng Active Directory
+    // Users — trước đây Bật/Tắt hoặc Sửa 1 user xong, trang tự reload sẽ luôn quay về "Tất cả
+    // trạng thái" + ô tìm trống, mất hết ngữ cảnh đang lọc dở của admin.
+    try {
+        const savedSearch = sessionStorage.getItem('pv_user_search');
+        const savedStatus = sessionStorage.getItem('pv_user_status_filter');
+        if (savedSearch)  document.getElementById('userSearchInput').value  = savedSearch;
+        if (savedStatus)  document.getElementById('userStatusFilter').value = savedStatus;
+        if (savedSearch || savedStatus) filterUserTable();
     } catch (e) {}
 });
 </script>

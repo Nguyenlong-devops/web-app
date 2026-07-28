@@ -1316,6 +1316,55 @@ def create_group():
         return jsonify({"status": "error", "message": err.strip() or "Tạo group thất bại (không rõ lý do)."})
     return jsonify({"status": "success", "group": group_name})
 
+@app.route('/api/delete-group', methods=['POST'])
+@domain_required
+@admin_required
+def delete_group():
+    """Xoá vĩnh viễn 1 group khỏi AD. Yêu cầu xác thực LẠI bằng đúng tài khoản + mật khẩu của
+    1 admin (bind LDAP thật, không chỉ so sánh chuỗi với mật khẩu đã lưu) — mạnh hơn hẳn kiểu xác
+    nhận "nhập lại mật khẩu Administrator" cũ, vì bắt buộc phải là tài khoản có quyền admin thật
+    sự tại THỜI ĐIỂM xoá (tài khoản đó có thể đã bị vô hiệu hoá/đổi mật khẩu/rút quyền sau này)."""
+    cfg = current_domain_cfg()
+    data = request.get_json() or {}
+    group_name = (data.get('group_name') or '').strip()
+    admin_user = (data.get('admin_user') or '').strip()
+    admin_pass = data.get('admin_pass') or ''
+
+    if not group_name:
+        return jsonify({"status": "error", "message": "Thiếu tên group."})
+    if not admin_user or not admin_pass:
+        return jsonify({"status": "error", "message": "Vui lòng nhập đầy đủ tài khoản và mật khẩu Admin."})
+
+    # Bind LDAP thật với tài khoản vừa nhập — xác nhận (1) đúng mật khẩu và (2) đúng là thành
+    # viên nhóm admin, y hệt bước kiểm tra lúc đăng nhập.
+    user_dn = f"{admin_user}{cfg['domain_suffix']}"
+    try:
+        server = Server(cfg['ldap_host'], get_info=None, connect_timeout=3)
+        conn   = Connection(server, user=user_dn, password=admin_pass, authentication='SIMPLE')
+        if not conn.bind():
+            return jsonify({"status": "error", "message": "Sai tài khoản hoặc mật khẩu Admin."}), 403
+
+        conn.search(search_base=cfg['base_dn'], search_filter=f'(sAMAccountName={admin_user})', attributes=['memberOf'])
+        is_target_admin = False
+        if conn.entries:
+            groups = conn.entries[0].memberOf.values if 'memberOf' in conn.entries[0] else []
+            admin_keywords = [cfg['admin_group_dn'].lower(), "cn=domain admins", "cn=administrators,cn=builtin"]
+            is_target_admin = any(any(kw in g.lower() for kw in admin_keywords) for g in groups)
+        conn.unbind()
+
+        if not is_target_admin:
+            return jsonify({"status": "error", "message": f"Tài khoản '{admin_user}' không có quyền Admin."}), 403
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Không xác thực được: {e}"}), 500
+
+    ps_cmd = f"Import-Module ActiveDirectory -DisableNameChecking; Remove-ADGroup -Identity '{ps_quote(group_name)}' -Confirm:$false"
+    out, err, ec = run_powershell_ssh(ps_cmd, cfg, return_stderr=True)
+    write_log(session['user'], 'DELETE_GROUP', target=group_name,
+              detail=f"Xác thực bởi admin={admin_user}, exit={ec}")
+    if ec != 0:
+        return jsonify({"status": "error", "message": err.strip() or "Xóa group thất bại (không rõ lý do)."})
+    return jsonify({"status": "success"})
+
 # ─────────────────────────────────────────────
 #  Edit user AD
 # ─────────────────────────────────────────────
