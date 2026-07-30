@@ -241,11 +241,15 @@ def init_db():
         # 12. Bảng lưu ngày bàn giao ĐẦU TIÊN của mỗi nhân viên — chỉ ghi 1 lần (lần in biên
         # bản bàn giao đầu tiên), các lần in sau (kể cả biên bản thu hồi) đều tham chiếu lại
         # đúng ngày này thay vì lấy ngày hiện tại. "Clear" sẽ xoá dòng này để bắt đầu lại.
+        # revoke_date: ngày thu hồi thiết bị — mặc định lấy ngày hiện tại lúc in biên bản thu
+        # hồi, có thể chỉnh tay, và được ghi đè mỗi lần in lại biên bản thu hồi.
         """CREATE TABLE IF NOT EXISTS handover_records (
             username        VARCHAR(128) PRIMARY KEY,
             handover_date   DATE NOT NULL,
+            revoke_date     DATE,
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )""",
+        """ALTER TABLE handover_records ADD COLUMN IF NOT EXISTS revoke_date DATE""",
     ]
 
     for sql in steps:
@@ -1643,9 +1647,12 @@ def api_log_handover():
 def api_get_handover_date(username):
     conn = get_db_connection(); cur = conn.cursor()
     try:
-        cur.execute("SELECT handover_date FROM handover_records WHERE username=%s", (username,))
+        cur.execute("SELECT handover_date, revoke_date FROM handover_records WHERE username=%s", (username,))
         row = cur.fetchone()
-        return jsonify({"handover_date": row[0].isoformat() if row else None})
+        return jsonify({
+            "handover_date": row[0].isoformat() if row and row[0] else None,
+            "revoke_date":   row[1].isoformat() if row and row[1] else None,
+        })
     finally:
         cur.close(); conn.close()
 
@@ -1674,6 +1681,37 @@ def api_save_handover_date():
         write_log(session['user'], 'SAVE_HANDOVER_DATE', target=username,
                   detail=f"handover_date={row[0].isoformat() if row else date_str}")
         return jsonify({"status": "success", "handover_date": row[0].isoformat() if row else date_str})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"status": "error", "message": str(e)})
+    finally:
+        cur.close(); conn.close()
+
+@app.route('/api/handover-revoke-date', methods=['POST'])
+@domain_required
+@admin_required
+def api_save_handover_revoke_date():
+    """Lưu/ghi đè ngày thu hồi thiết bị cho 1 nhân viên — khác với handover_date (chỉ ghi
+    1 lần), revoke_date được ghi đè mỗi lần in lại biên bản thu hồi vì ngày thu hồi thực tế
+    có thể cần chỉnh lại. Yêu cầu nhân viên này đã có ngày bàn giao (handover_date) từ trước."""
+    data       = request.get_json() or {}
+    username   = (data.get('username') or '').strip()
+    date_str   = (data.get('revoke_date') or '').strip()
+    if not username or not date_str:
+        return jsonify({"status": "error", "message": "Thiếu username hoặc ngày thu hồi"})
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE handover_records SET revoke_date=%s WHERE username=%s",
+            (date_str, username)
+        )
+        if cur.rowcount == 0:
+            conn.rollback()
+            return jsonify({"status": "error", "message": "Chưa ghi nhận ngày bàn giao cho nhân viên này"})
+        conn.commit()
+        write_log(session['user'], 'SAVE_HANDOVER_REVOKE_DATE', target=username,
+                  detail=f"revoke_date={date_str}")
+        return jsonify({"status": "success", "revoke_date": date_str})
     except Exception as e:
         conn.rollback()
         return jsonify({"status": "error", "message": str(e)})

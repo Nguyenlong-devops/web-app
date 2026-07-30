@@ -409,9 +409,15 @@
         <div class="modal-body">
             <div id="ho_date_modal_hint" style="font-size:13px;margin-bottom:14px;color:var(--text-soft);"></div>
             <div class="form-group">
-                <label>Ngày</label>
+                <label id="ho_date_input_label">Ngày</label>
                 <input type="date" id="ho_date_input"
                     style="height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+            </div>
+            <div class="form-group" id="ho_revoke_date_group" style="display:none;">
+                <label>Ngày Thu Hồi</label>
+                <input type="date" id="ho_revoke_date_input"
+                    style="height:34px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;">
+                <div style="font-size:12px;color:var(--text-soft);margin-top:4px;">Mặc định là ngày hôm nay, có thể chỉnh lại nếu cần. Ngày này sẽ được lưu lại vào hệ thống.</div>
             </div>
         </div>
         <div class="modal-footer">
@@ -1631,7 +1637,7 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
    ════════════════════════════════════════════════════════════════ */
 * {
     scrollbar-width: auto;                                    /* Firefox */
-    scrollbar-color: rgba(0,120,212,.32) var(--bg-secondary, #e9edf2);
+    scrollbar-color: rgba(100,110,125,.35) var(--bg-secondary, #e9edf2);
 }
 *::-webkit-scrollbar {                                        /* Chrome / Edge / Safari */
     width: 14px;
@@ -1642,7 +1648,7 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
     border-radius: 10px;
 }
 *::-webkit-scrollbar-thumb {
-    background-color: rgba(0,120,212,.32);                    /* nhạt hơn bản trước — vẫn nhận ra ngay nhưng không gắt mắt */
+    background-color: rgba(100,110,125,.35);                  /* xám nhẹ — trung tính, đỡ gắt mắt hơn màu xanh */
     background-clip: padding-box;
     border: 3px solid transparent;                            /* tạo khoảng đệm quanh thumb -> nhìn như "viên thuốc" nổi giữa track */
     border-radius: 10px;
@@ -1650,11 +1656,11 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
     min-width: 44px;
 }
 *::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(0,120,212,.55);                    /* đậm hơn khi hover/kéo để vẫn dễ thao tác */
+    background-color: rgba(100,110,125,.55);                  /* đậm hơn khi hover/kéo để vẫn dễ thao tác */
     border-width: 2px;                                        /* thumb "phình" nhẹ khi hover -> dễ nhận biết đang tương tác được */
 }
 *::-webkit-scrollbar-thumb:active {
-    background-color: rgba(0,120,212,.65);
+    background-color: rgba(100,110,125,.68);
 }
 *::-webkit-scrollbar-corner {
     background: transparent;
@@ -3651,16 +3657,24 @@ function printHandover() {
             }
             _hoPrintContext.mode = 'revoke';
             _hoPrintContext.alreadySaved = true;
-            document.getElementById('ho_date_modal_title').textContent = '📅 Ngày Bàn Giao (cho biên bản thu hồi)';
+            document.getElementById('ho_date_modal_title').textContent = '📅 Ngày Bàn Giao & Thu Hồi (cho biên bản thu hồi)';
+            document.getElementById('ho_date_input_label').textContent = 'Ngày Bàn Giao';
             document.getElementById('ho_date_modal_hint').textContent =
                 'Ngày bàn giao ban đầu của nhân viên này — có thể sửa lại tay nếu cần, chỉ áp dụng cho bản in này, không ảnh hưởng ngày đã lưu.';
             document.getElementById('ho_date_input').value = savedDate;
             document.getElementById('ho_date_input').disabled = false;
+
+            // Ngày thu hồi: mặc định lấy ngày đã lưu từ lần thu hồi trước (nếu có), nếu chưa
+            // từng thu hồi thì mặc định là hôm nay — luôn cho phép chỉnh sửa tay.
+            document.getElementById('ho_revoke_date_group').style.display = '';
+            document.getElementById('ho_revoke_date_input').value = data.revoke_date || todayIso;
         } else {
             // ── In biên bản BÀN GIAO (bình thường) ──
             _hoPrintContext.mode = 'handover';
             _hoPrintContext.alreadySaved = !!savedDate;
             document.getElementById('ho_date_modal_title').textContent = '📅 Ngày Bàn Giao';
+            document.getElementById('ho_date_input_label').textContent = 'Ngày';
+            document.getElementById('ho_revoke_date_group').style.display = 'none';
             if (savedDate) {
                 document.getElementById('ho_date_modal_hint').textContent =
                     'Đã ghi nhận ngày bàn giao đầu tiên cho nhân viên này — các lần in sau đều dùng lại đúng ngày này. Dùng nút "Clear" cạnh ô chọn nhân viên nếu muốn đặt lại từ đầu.';
@@ -3684,9 +3698,13 @@ function confirmHandoverDate() {
     const chosenDate = document.getElementById('ho_date_input').value;
     if (!chosenDate) { showToast('Vui lòng chọn ngày', 'warning'); return; }
 
+    const isRevoke = ctx.mode === 'revoke';
+    const chosenRevokeDate = isRevoke ? document.getElementById('ho_revoke_date_input').value : null;
+    if (isRevoke && !chosenRevokeDate) { showToast('Vui lòng chọn ngày thu hồi', 'warning'); return; }
+
     const proceed = () => {
         closeModal('handoverDateModal');
-        _renderAndPrintHandover(ctx, chosenDate);
+        _renderAndPrintHandover(ctx, chosenDate, chosenRevokeDate);
     };
 
     if (ctx.mode === 'handover' && !ctx.alreadySaved) {
@@ -3704,18 +3722,40 @@ function confirmHandoverDate() {
                 showToast(d.message || 'Lưu ngày bàn giao thất bại', 'danger');
             }
         }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối', 'danger'); });
+    } else if (isRevoke) {
+        // In biên bản thu hồi — lưu lại ngày thu hồi vào hệ thống (ghi đè nếu in lại).
+        showLoading();
+        fetch('/api/handover-revoke-date', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ username: ctx.username, revoke_date: chosenRevokeDate })
+        }).then(r=>r.json()).then(d=>{
+            hideLoading();
+            if (d.status === 'success') {
+                _hoRefreshClearButton(ctx.username);
+                showToast('Đã lưu ngày thu hồi', 'success');
+                proceed();
+            } else {
+                showToast(d.message || 'Lưu ngày thu hồi thất bại', 'danger');
+            }
+        }).catch(()=>{ hideLoading(); showToast('Lỗi kết nối', 'danger'); });
     } else {
-        // Đã lưu từ trước (biên bản bàn giao lần 2+) hoặc đang in biên bản thu hồi (không ghi
-        // đè ngày đã lưu, chỉ dùng ngày vừa chọn cho riêng bản in này).
+        // Đã lưu từ trước (biên bản bàn giao lần 2+) — không ghi đè ngày đã lưu, chỉ dùng
+        // ngày vừa chọn cho riêng bản in này.
         proceed();
     }
 }
 
-function _renderAndPrintHandover(ctx, handoverDateIso) {
+function _renderAndPrintHandover(ctx, handoverDateIso, revokeDateIso) {
     const [y, m, d] = handoverDateIso.split('-');
     const handoverDateStr = `Ngày ${d} Tháng ${m} Năm ${y}`;
-    const today = new Date();
-    const returnDateStr = `Ngày ${String(today.getDate()).padStart(2,'0')} Tháng ${String(today.getMonth()+1).padStart(2,'0')} Năm ${today.getFullYear()}`;
+    let returnDateStr;
+    if (revokeDateIso) {
+        const [ry, rm, rd] = revokeDateIso.split('-');
+        returnDateStr = `Ngày ${rd} Tháng ${rm} Năm ${ry}`;
+    } else {
+        const today = new Date();
+        returnDateStr = `Ngày ${String(today.getDate()).padStart(2,'0')} Tháng ${String(today.getMonth()+1).padStart(2,'0')} Năm ${today.getFullYear()}`;
+    }
 
     const isRevoke = ctx.mode === 'revoke';
     // Khi in biên bản thu hồi: mục 5 (bàn giao) coi như đã ký từ trước -> hiện chữ "Đã xác nhận"
@@ -3833,7 +3873,13 @@ function _hoRefreshClearButton(username) {
         if (data.handover_date) {
             const [y, m, d] = data.handover_date.split('-');
             if (iconEl) iconEl.textContent = '📅';
-            if (statusEl) { statusEl.textContent = `Đã bàn giao lần đầu ngày ${d}/${m}/${y}`; statusEl.classList.remove('ho-status-none'); }
+            let statusText = `Đã bàn giao lần đầu ngày ${d}/${m}/${y}`;
+            if (data.revoke_date) {
+                const [ry, rm, rd] = data.revoke_date.split('-');
+                statusText += `<br>Đã thu hồi ngày ${rd}/${rm}/${ry}`;
+                if (iconEl) iconEl.textContent = '✅';
+            }
+            if (statusEl) { statusEl.innerHTML = statusText; statusEl.classList.remove('ho-status-none'); }
             if (btn) btn.style.display = '';
         } else {
             if (iconEl) iconEl.textContent = '📦';
