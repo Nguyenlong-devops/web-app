@@ -1161,7 +1161,7 @@ def index():
             cur.execute("""
                 SELECT id, software_key, software_name, total_licenses, used_licenses,
                        (total_licenses - used_licenses) AS available_licenses
-                FROM software_inventory ORDER BY id DESC
+                FROM software_inventory ORDER BY id ASC
             """)
             software_list = cur.fetchall()
 

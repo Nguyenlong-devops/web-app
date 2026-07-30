@@ -928,7 +928,7 @@
                     {% endif %}
                 </div>
             </div>
-            <div class="table-container">
+            <div class="table-container scroll-area table-container-5rows">
                 <table class="modern-table" id="licenseTable">
                     <thead>
                         <tr>
@@ -983,7 +983,7 @@
                     <a href="/export-licenses-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export</a>
                 </div>
             </div>
-            <div class="table-container scroll-area">
+            <div class="table-container scroll-area table-container-5rows">
                 <table class="modern-table" id="assignTable">
                     <thead>
                         <tr>
@@ -1686,6 +1686,20 @@ html[data-theme="dark"] *::-webkit-scrollbar-thumb:active {
 .scroll-area::-webkit-scrollbar {
     width: 14px;
     height: 14px;
+}
+
+/* Software License Inventory & License Assignment History: chỉ hiển thị 5 dòng dữ liệu,
+   phần còn lại cuộn dọc bên trong khung bảng thay vì kéo dài toàn trang. Nếu font/padding
+   trong app.css thay đổi làm số dòng hiển thị lệch đi, chỉ cần chỉnh lại giá trị max-height. */
+.table-container-5rows {
+    max-height: 262px;
+    overflow-y: auto;
+}
+.table-container-5rows thead th {
+    position: sticky;
+    top: 0;
+    background: var(--card);
+    z-index: 1;
 }
 
 </style>
