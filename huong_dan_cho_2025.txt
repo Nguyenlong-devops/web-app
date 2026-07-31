@@ -1,0 +1,27 @@
+#1. kiem tra cert:
+$fqdn = [System.Net.Dns]::GetHostByName($env:COMPUTERNAME).HostName
+Write-Host "FQDN: $fqdn"
+Get-ChildItem Cert:\LocalMachine\My | Select-Object Subject, Thumbprint, HasPrivateKey, NotAfter
+
+#2. tao moi cert:
+$cert = New-SelfSignedCertificate `
+    -Subject "CN=$fqdn" `
+    -DnsName $fqdn `
+    -CertStoreLocation "Cert:\LocalMachine\My" `
+    -KeyExportPolicy Exportable `
+    -KeySpec Signature `
+    -KeyLength 2048 `
+    -KeyAlgorithm RSA `
+    -HashAlgorithm SHA256 `
+    -NotAfter (Get-Date).AddYears(5) `
+    -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.1")
+
+$cert.Thumbprint
+
+#3. dua vao trusted root
+$rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root","LocalMachine")
+$rootStore.Open("ReadWrite")
+$rootStore.Add($cert)
+$rootStore.Close()
+
+#4. cap quyen trong certlm.msc
