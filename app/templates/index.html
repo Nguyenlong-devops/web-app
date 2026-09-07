@@ -810,16 +810,37 @@
                     <button class="close-btn" onclick="closeAllPanels()">✕</button>
                 </div>
                 <div class="modal-body">
-                <form id="assignLicenseForm" action="/assign-software-direct" method="POST" onsubmit="showLoading()">
+                <form id="assignLicenseForm" action="/assign-software-direct" method="POST" onsubmit="return validateAssignLicenseForm(event)">
                     <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token','') }}">
                     <div class="form-grid">
-                        <div class="form-group">
-                            <label>User AD</label>
-                            <select name="sam_account_name" required>
-                                {% for user in ad_users %}
-                                <option value="{{ user.SamAccountName }}">{{ user.SamAccountName }} — {{ user.Name }}</option>
-                                {% endfor %}
-                            </select>
+                        <div class="form-group assign-user-field" style="grid-column:1/-1;">
+                            <label for="assignLicenseUserSearch">User AD</label>
+                            <div id="assignLicenseUserCombobox" class="assign-user-combobox">
+                                <input type="search" id="assignLicenseUserSearch"
+                                       placeholder="Nhập username hoặc họ tên..."
+                                       autocomplete="off" role="combobox"
+                                       aria-autocomplete="list" aria-expanded="false"
+                                       aria-controls="assignLicenseUserOptions"
+                                       onfocus="openAssignLicenseUsers()"
+                                       oninput="filterAssignLicenseUsers(this.value)"
+                                       onkeydown="handleAssignLicenseUserKeydown(event)">
+                                <input type="hidden" id="assignLicenseUserValue" name="sam_account_name" required>
+                                <div id="assignLicenseUserOptions" class="assign-user-options" role="listbox">
+                                    {% for user in ad_users %}
+                                    {% if user.Enabled %}
+                                    <button type="button" class="assign-user-option" role="option"
+                                            data-value="{{ user.SamAccountName }}"
+                                            data-label="{{ user.SamAccountName }} — {{ user.Name }}"
+                                            onclick="selectAssignLicenseUser(this)">
+                                        <strong>{{ user.SamAccountName }}</strong><span>{{ user.Name }}</span>
+                                    </button>
+                                    {% endif %}
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div id="assignLicenseUserSearchEmpty" class="form-hint" style="display:none;color:var(--danger);margin-top:5px;">
+                                Không tìm thấy user active phù hợp.
+                            </div>
                         </div>
                         <div class="form-group">
                             <label>License</label>
@@ -846,6 +867,78 @@
             </div>
         </div>
         {% endif %}
+
+        <script>
+        function setAssignLicenseUsersOpen(open) {
+            const combo = document.getElementById('assignLicenseUserCombobox');
+            const input = document.getElementById('assignLicenseUserSearch');
+            if (!combo || !input) return;
+            combo.classList.toggle('is-open', open);
+            input.setAttribute('aria-expanded', String(open));
+        }
+        function openAssignLicenseUsers() {
+            filterAssignLicenseUsers(document.getElementById('assignLicenseUserSearch')?.value || '');
+            setAssignLicenseUsersOpen(true);
+        }
+        function filterAssignLicenseUsers(query) {
+            const options = Array.from(document.querySelectorAll('#assignLicenseUserOptions .assign-user-option'));
+            const emptyMessage = document.getElementById('assignLicenseUserSearchEmpty');
+            const hiddenInput = document.getElementById('assignLicenseUserValue');
+            if (!emptyMessage || !hiddenInput) return;
+            const normalizedQuery = (query || '').trim().toLocaleLowerCase('vi');
+            let matchCount = 0;
+            hiddenInput.value = '';
+            options.forEach(option => {
+                const matches = !normalizedQuery || option.dataset.label.toLocaleLowerCase('vi').includes(normalizedQuery);
+                option.hidden = !matches;
+                option.classList.remove('is-active');
+                option.setAttribute('aria-selected', 'false');
+                if (matches) matchCount++;
+            });
+            emptyMessage.style.display = matchCount ? 'none' : 'block';
+            setAssignLicenseUsersOpen(true);
+        }
+        function selectAssignLicenseUser(option) {
+            const input = document.getElementById('assignLicenseUserSearch');
+            const hiddenInput = document.getElementById('assignLicenseUserValue');
+            input.value = option.dataset.label;
+            hiddenInput.value = option.dataset.value;
+            document.querySelectorAll('#assignLicenseUserOptions .assign-user-option').forEach(item => {
+                const selected = item === option;
+                item.classList.toggle('is-active', selected);
+                item.setAttribute('aria-selected', String(selected));
+            });
+            document.getElementById('assignLicenseUserSearchEmpty').style.display = 'none';
+            setAssignLicenseUsersOpen(false);
+        }
+        function handleAssignLicenseUserKeydown(event) {
+            const visible = Array.from(document.querySelectorAll('#assignLicenseUserOptions .assign-user-option:not([hidden])'));
+            if (event.key === 'Escape') return setAssignLicenseUsersOpen(false);
+            if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key) || !visible.length) return;
+            event.preventDefault();
+            let index = visible.findIndex(item => item.classList.contains('is-active'));
+            if (event.key === 'Enter') return selectAssignLicenseUser(visible[Math.max(index, 0)]);
+            index = event.key === 'ArrowDown' ? (index + 1) % visible.length : (index <= 0 ? visible.length - 1 : index - 1);
+            visible.forEach((item, itemIndex) => item.classList.toggle('is-active', itemIndex === index));
+            visible[index].scrollIntoView({ block: 'nearest' });
+        }
+        function validateAssignLicenseForm(event) {
+            const selectedUser = document.getElementById('assignLicenseUserValue');
+            if (!selectedUser?.value) {
+                event.preventDefault();
+                openAssignLicenseUsers();
+                document.getElementById('assignLicenseUserSearch')?.focus();
+                showToast('Vui lòng chọn một user trong danh sách', 'warning');
+                return false;
+            }
+            showLoading();
+            return true;
+        }
+        document.addEventListener('click', event => {
+            const combo = document.getElementById('assignLicenseUserCombobox');
+            if (combo && !combo.contains(event.target)) setAssignLicenseUsersOpen(false);
+        });
+        </script>
 
         {% if session.get('is_admin') %}
         <!-- AD USERS TABLE -->
@@ -982,46 +1075,98 @@
             <div class="card-header">
                 <div class="card-title-block">
                     <div class="card-title">License Assignment History</div>
-                    <div class="card-subtitle">Danh sách license đã cấp</div>
+                    <div class="card-subtitle">Mỗi thẻ là một ứng dụng cùng các user đang được cấp</div>
                 </div>
-                <div class="card-actions" style="gap:6px;">
-                    <input type="text" id="assignSearchInput" class="search-box" placeholder="Tìm..." oninput="filterAssignTable()">
-                    <a href="/export-licenses-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export</a>
+                <div class="card-actions license-history-actions">
+                    <input type="text" id="assignSearchInput" class="search-box"
+                           placeholder="Tìm app, key hoặc user..." oninput="filterAssignmentCards()">
+                    <label class="btn btn-primary btn-sm" style="cursor:pointer;">
+                        ↑ Import Excel
+                        <input type="file" accept=".xlsx,.xlsm" hidden onchange="importLicenseAssignments(this)">
+                    </label>
+                    <div id="licenseExportPicker" class="license-export-picker">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="toggleLicenseExportPicker(event)">↓ Export ▾</button>
+                        <div id="licenseExportMenu" class="license-export-menu">
+                            <div class="license-export-menu-head">
+                                <strong>Chọn app cần export</strong>
+                                <button type="button" class="btn btn-ghost btn-sm" onclick="setAllLicenseExportApps(true)">Chọn tất cả</button>
+                                <button type="button" class="btn btn-ghost btn-sm" onclick="setAllLicenseExportApps(false)">Bỏ chọn</button>
+                            </div>
+                            <div class="license-export-options">
+                                {% for app in assignment_apps %}
+                                <label class="license-export-option">
+                                    <input type="checkbox" value="{{ app.software_key }}" checked>
+                                    <span><strong>{{ app.software_name }}</strong><code>{{ app.software_key }}</code></span>
+                                </label>
+                                {% else %}
+                                <div class="license-export-empty">Chưa có app nào được cấp.</div>
+                                {% endfor %}
+                            </div>
+                            <div class="license-export-footer">
+                                <span id="licenseExportCount"></span>
+                                <button type="button" class="btn btn-primary btn-sm" onclick="exportSelectedLicenseApps()">Export đã chọn</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="table-container scroll-area table-container-5rows">
-                <table class="modern-table" id="assignTable">
-                    <thead>
-                        <tr>
-                            <th onclick="sortTable('assignTable',0)" style="cursor:pointer;user-select:none;">User <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
-                            <th onclick="sortTable('assignTable',1)" style="cursor:pointer;user-select:none;">License Key <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
-                            <th onclick="sortTable('assignTable',2)" style="cursor:pointer;user-select:none;">Số Lượng <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
-                            <th onclick="sortTable('assignTable',3)" style="cursor:pointer;user-select:none;">Thời Gian Cấp <span style="color:var(--text-muted);font-size:10px;">⇅</span></th>
-                            {% if session.get('is_admin') %}<th>Thu Hồi</th>{% endif %}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for a in assigned_list %}
-                        <tr>
-                            <td><strong>{{ a[1] }}</strong></td>
-                            <td><code>{{ a[2] }}</code></td>
-                            <td><span class="badge badge-info">{{ a[3] }}</span></td>
-                            <td style="color:var(--text-soft);font-size:12px;">{{ a[4].strftime('%d/%m/%Y %H:%M') if a[4] else '' }}</td>
-                            {% if session.get('is_admin') %}
-                            <td>
-                                <button class="btn btn-warning btn-sm"
-                                        onclick="openRevokeModal('{{ a[1] }}', '{{ a[2] }}', {{ a[3] }})">
-                                    ↩ Thu Hồi
-                                </button>
-                            </td>
+<!--             <div class="license-import-hint"> -->
+<!--                 Excel cần 3 cột: <code>User</code>, <code>License Key</code>, <code>Quantity</code>. Chỉ user active mới được nhập. -->
+<!--             </div> -->
+            <div id="assignmentAppGrid" class="license-app-grid scroll-area">
+                {% for app in assignment_apps %}
+                {% set app_identity = (app.software_name ~ ' ' ~ app.software_key)|lower %}
+                <article class="license-app-card" data-search="{{ app.software_name }} {{ app.software_key }} {% for item in app.assignments %}{{ item.username }} {% endfor %}">
+                    <div class="license-app-card-head">
+                        <div class="license-app-icon {% if 'office' in app_identity or '365' in app_identity %}icon-office{% elif 'windows' in app_identity or 'microsoft' in app_identity %}icon-microsoft{% elif 'creative cloud' in app_identity %}icon-creative-cloud{% elif 'adobe' in app_identity or 'acrobat' in app_identity %}icon-adobe{% elif 'zoom' in app_identity %}icon-zoom{% elif 'chrome' in app_identity %}icon-chrome{% elif 'google' in app_identity %}icon-google{% else %}icon-generic{% endif %}" title="{{ app.software_name }}">
+                            {% if 'office' in app_identity or '365' in app_identity %}
+                            <svg class="brand-logo" viewBox="0 0 32 32" aria-label="Microsoft 365"><path fill="#ea3e23" d="M12.7 3.2 25 7.5v17L12.7 28.8 5 23.4V8.6l7.7-5.4Zm1.5 6.1-5 1.8v9.8l5 1.8 6.6-2.4v-8.6l-6.6-2.4Zm0 3.4 3.7 1.3v4l-3.7 1.3-2.1-.8v-5l2.1-.8Z"/></svg>
+                            {% elif 'windows' in app_identity or 'microsoft' in app_identity %}
+                            <svg class="brand-logo" viewBox="0 0 24 24" aria-label="Microsoft"><path fill="#f25022" d="M2 2h9v9H2z"/><path fill="#7fba00" d="M13 2h9v9h-9z"/><path fill="#00a4ef" d="M2 13h9v9H2z"/><path fill="#ffb900" d="M13 13h9v9h-9z"/></svg>
+                            {% elif 'creative cloud' in app_identity %}
+                            <svg class="brand-logo" viewBox="0 0 32 32" aria-label="Adobe Creative Cloud"><path fill="#ed1c24" d="M19.8 7a9 9 0 0 1 4.6 16.7H12.2a7.2 7.2 0 1 1 2-14.1A9 9 0 0 1 19.8 7Zm0 3a6 6 0 0 0-4.5 2l-1.1 1.3-1.2-.5a4.2 4.2 0 1 0-.8 7.9h2.2a6 6 0 1 1 5.4 3h4.4A6 6 0 0 0 19.8 10Zm0 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/></svg>
+                            {% elif 'adobe' in app_identity or 'acrobat' in app_identity %}
+                            <svg class="brand-logo" viewBox="0 0 24 24" aria-label="Adobe Acrobat"><path fill="#ed1c24" d="M12.7 3.2c.6 3.7 1.6 6.8 3 9.3 2.3-.5 4.2-.4 5.1.2 2 1.3-.2 3.3-2.2 3.2-1.1-.1-2.4-.6-3.7-1.4-2.1.6-4.4 1.5-6.3 2.5-1.3 2.2-2.6 3.8-3.8 4.1-1.7.5-2.4-1.5-1.3-2.7.7-.7 2-1.6 3.7-2.5 1-1.9 2-4.1 2.7-6.2-.7-2.5-1-4.7-.5-5.8.6-1.4 2.8-2.3 3.3-.7Zm-3 11.5c1.2-.5 2.5-1 3.8-1.4-.8-1.4-1.5-2.9-2-4.4-.5 1.8-1.1 3.8-1.8 5.8Z"/></svg>
+                            {% elif 'zoom' in app_identity %}
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Zm14 4 4-3v10l-4-3v-4Z"/></svg>
+                            {% elif 'chrome' in app_identity %}
+                            <svg class="brand-logo" viewBox="0 0 32 32" aria-label="Google Chrome"><path fill="#ea4335" d="M16 3a13 13 0 0 1 11.3 6.5H15.8a6.6 6.6 0 0 0-5.5 3L6.5 6.1A13 13 0 0 1 16 3Z"/><path fill="#fbbc05" d="M10.3 12.5a6.5 6.5 0 0 0 2.3 8.8l-3.8 6.4A13 13 0 0 1 6.5 6.1l3.8 6.4Z"/><path fill="#34a853" d="M16 22.5a6.5 6.5 0 0 0 5.7-9.6h7.4A13 13 0 0 1 8.8 27.7l3.8-6.4c1 .8 2.1 1.2 3.4 1.2Z"/><circle cx="16" cy="16" r="4.4" fill="#4285f4"/></svg>
+                            {% elif 'google' in app_identity %}
+                            <svg class="brand-logo" viewBox="0 0 24 24" aria-label="Google"><path fill="#4285f4" d="M21.6 12.2c0-.7-.1-1.5-.2-2.2H12v4h5.4a4.6 4.6 0 0 1-2 3v2.6h3.3c1.9-1.8 2.9-4.4 2.9-7.4Z"/><path fill="#34a853" d="M12 22c2.7 0 5-.9 6.7-2.4L15.4 17c-.9.6-2.1 1-3.4 1a5.9 5.9 0 0 1-5.5-4.1H3.1v2.7A10 10 0 0 0 12 22Z"/><path fill="#fbbc05" d="M6.5 13.9A6 6 0 0 1 6.2 12c0-.7.1-1.3.3-1.9V7.4H3.1A10 10 0 0 0 2 12c0 1.6.4 3.2 1.1 4.6l3.4-2.7Z"/><path fill="#ea4335" d="M12 6c1.5 0 2.8.5 3.9 1.5l2.9-2.9A9.8 9.8 0 0 0 12 2a10 10 0 0 0-8.9 5.4l3.4 2.7A5.9 5.9 0 0 1 12 6Z"/></svg>
+                            {% else %}
+                            <span>{{ app.software_name[:1]|upper }}</span>
                             {% endif %}
-                        </tr>
+                        </div>
+                        <div class="license-app-title-wrap">
+                            <div class="license-app-title">{{ app.software_name }}</div>
+                            <code title="{{ app.software_key }}">{{ app.software_key }}</code>
+                        </div>
+                        <div class="license-app-total" title="Tổng số license đã cấp">
+                            <strong>{{ app.total_quantity }}</strong><span>đã cấp</span>
+                        </div>
+                    </div>
+                    <div class="license-app-users">
+                        {% for item in app.assignments %}
+                        <div class="license-user-row">
+                            <div class="license-user-avatar">{{ item.username[:1]|upper }}</div>
+                            <div class="license-user-info">
+                                <strong>{{ item.username }}</strong>
+                                <span>{{ item.assigned_at.strftime('%d/%m/%Y %H:%M') if item.assigned_at else '—' }}</span>
+                            </div>
+                            <span class="license-user-qty">×{{ item.quantity }}</span>
+                            <button class="btn btn-warning btn-sm license-revoke-btn"
+                                    onclick='openRevokeModal({{ item.username|tojson }}, {{ app.software_key|tojson }}, {{ item.quantity }})'
+                                    title="Thu hồi license">↩</button>
+                        </div>
                         {% endfor %}
-                    </tbody>
-                </table>
+                    </div>
+                </article>
+                {% else %}
+                <div class="license-app-empty">Chưa có license nào được cấp.</div>
+                {% endfor %}
             </div>
-        </div>
-        {% endif %}
+            <div id="assignmentSearchEmpty" class="license-app-empty" style="display:none;">Không tìm thấy ứng dụng hoặc user phù hợp.</div>
+        </div>        {% endif %}
 
         {% if not session.get('is_admin') %}
         <!-- USER THƯỜNG: chỉ thấy computer + license được cấp cho chính mình -->
@@ -1375,7 +1520,11 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
                 <div class="page-subtitle">Lịch sử toàn bộ thao tác của Admin — 200 bản ghi gần nhất</div>
             </div>
             <div class="page-actions">
-                <a href="/export-audit-csv" class="btn btn-primary btn-sm" style="text-decoration:none;">
+                <a href="/export-allocation-history.xlsx" class="btn btn-primary btn-sm" style="text-decoration:none;">
+                    ↓ Export Cấp Phát Excel
+                </a>
+                <button class="btn btn-secondary btn-sm" onclick="exportUserAllocationHistory()">Export Theo User</button>
+                <a href="/export-audit-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     Export CSV
                 </a>
@@ -1385,6 +1534,55 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
             </div>
         </div>
 
+        <!-- Per-user device/license allocation history -->
+        <div class="content-card" style="margin-bottom:12px;">
+            <div class="card-header">
+                <div class="card-title-block">
+                    <div class="card-title">Lịch Sử Cấp Phát & Thu Hồi</div>
+                    <div class="card-subtitle">Thiết bị và license theo từng user — dữ liệu lịch sử không bị xóa khi thu hồi</div>
+                </div>
+                <div class="card-actions" style="flex-wrap:wrap;gap:6px;">
+                    <input id="allocationSearchInput" class="search-box" placeholder="Tìm user, thiết bị, app..." oninput="filterAllocationHistory()">
+                    <select id="allocationTypeFilter" onchange="filterAllocationHistory()">
+                        <option value="">Tất cả loại</option>
+                        <option value="DEVICE">Thiết bị</option>
+                        <option value="LICENSE">License</option>
+                    </select>
+                    <select id="allocationActionFilter" onchange="filterAllocationHistory()">
+                        <option value="">Tất cả hành động</option>
+                        <option value="ASSIGN">Cấp phát</option>
+                        <option value="REVOKE">Thu hồi</option>
+                        <option value="BASELINE">Số dư ban đầu</option>
+                    </select>
+                </div>
+            </div>
+            <div class="table-container scroll-area" style="max-height:390px;overflow:auto;">
+                <table class="modern-table" id="allocationHistoryTable">
+                    <thead><tr>
+                        <th>Thời Gian</th><th>User</th><th>Loại</th><th>Hành Động</th>
+                        <th>Mã / Key</th><th>Tài Sản / Ứng Dụng</th><th>SL</th><th>Người Thao Tác</th><th>Chi Tiết</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for h in allocation_history %}
+                    <tr data-type="{{ h[3] }}" data-action="{{ h[4] }}">
+                        <td style="white-space:nowrap;font-size:12px;color:var(--text-soft);">{{ h[1].strftime('%d/%m/%Y %H:%M:%S') if h[1] else '' }}</td>
+                        <td><strong>{{ h[2] }}</strong></td>
+                        <td><span class="badge {{ 'badge-info' if h[3] == 'DEVICE' else 'badge-secondary' }}">{{ 'Thiết bị' if h[3] == 'DEVICE' else 'License' }}</span></td>
+                        <td><span class="badge {{ 'badge-success' if h[4] == 'ASSIGN' else ('badge-danger' if h[4] == 'REVOKE' else 'badge-warning') }}">{{ {'ASSIGN':'Cấp phát','REVOKE':'Thu hồi','BASELINE':'Ban đầu'}.get(h[4], h[4]) }}</span></td>
+                        <td><code>{{ h[5] or '—' }}</code></td>
+                        <td>{{ h[6] or '—' }}</td>
+                        <td><strong>{{ h[7] }}</strong></td>
+                        <td><code>{{ h[8] }}</code></td>
+                        <td style="font-size:12px;color:var(--text-soft);">{{ h[9] or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not allocation_history %}
+                    <tr class="allocation-empty-row"><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted);">Chưa có lịch sử cấp phát. Hệ thống sẽ bắt đầu ghi sau khi database được cập nhật.</td></tr>
+                    {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
         <!-- Filter bar -->
         <div class="content-card" style="padding:12px 16px;">
             <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
@@ -1694,6 +1892,88 @@ html[data-theme="dark"] *::-webkit-scrollbar-thumb:active {
     height: 14px;
 }
 
+/* License assignment cards */
+.license-history-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.license-export-picker { position:relative; }
+.license-export-menu {
+    display:none; position:absolute; z-index:50; top:calc(100% + 6px); right:0; width:340px;
+    overflow:hidden; background:var(--card); color:var(--text); border:1px solid var(--border-strong);
+    border-radius:10px; box-shadow:0 14px 35px rgba(15,23,42,.2);
+}
+.license-export-picker.is-open .license-export-menu { display:block; }
+.license-export-menu-head { display:flex; align-items:center; gap:4px; padding:10px; border-bottom:1px solid var(--border); }
+.license-export-menu-head strong { flex:1; font-size:12px; }
+.license-export-options { max-height:245px; overflow-y:auto; padding:5px; }
+.license-export-option { display:flex; align-items:center; gap:9px; padding:8px; border-radius:7px; cursor:pointer; }
+.license-export-option:hover { background:var(--bg-secondary); }
+.license-export-option > input { flex:0 0 auto; }
+.license-export-option > span { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.license-export-option strong, .license-export-option code { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.license-export-option strong { font-size:12px; }
+.license-export-option code { color:var(--text-muted); font-size:10px; }
+.license-export-empty { padding:20px; text-align:center; color:var(--text-muted); font-size:12px; }
+.license-export-footer { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px; border-top:1px solid var(--border); }
+.license-export-footer span { color:var(--text-muted); font-size:11px; }
+.license-import-hint {
+    margin: 0 16px 12px; padding: 9px 12px; border-radius: 8px;
+    background: var(--info-bg, #e7f1ff); color: var(--text-soft); font-size: 12px;
+}
+.license-app-grid {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
+    gap:12px; padding:0 16px 16px; max-height:520px; overflow-y:auto;
+}
+.license-app-card {
+    min-width:0; border:1px solid var(--border); border-radius:12px;
+    background:var(--card); box-shadow:0 2px 8px rgba(15,23,42,.05); overflow:hidden;
+    transition:border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.license-app-card:hover { border-color:var(--azure); box-shadow:0 7px 20px rgba(15,23,42,.09); transform:translateY(-1px); }
+.license-app-card-head { display:flex; align-items:center; gap:11px; padding:14px; border-bottom:1px solid var(--border); }
+.license-app-icon {
+    width:43px; height:43px; border-radius:11px; display:grid; place-items:center;
+    flex:0 0 43px; color:#fff; font-weight:800; font-size:20px;
+}
+.license-app-icon svg { width:23px; height:23px; fill:currentColor; }
+.license-app-icon .icon-cut { fill:var(--card); }
+.license-app-icon .brand-logo { width:27px; height:27px; }
+.icon-office, .icon-microsoft, .icon-creative-cloud, .icon-adobe, .icon-chrome, .icon-google { background:#fff; border:1px solid rgba(15,23,42,.10); }
+.icon-zoom { background:linear-gradient(135deg,#2d8cff,#0b5cff); }
+.icon-generic { background:linear-gradient(135deg,var(--azure),#7c3aed); }
+.assign-user-combobox { position:relative; }
+.assign-user-combobox > input[type="search"] { width:100%; }
+.assign-user-options {
+    display:none; position:absolute; z-index:40; top:calc(100% + 5px); left:0; right:0;
+    max-height:220px; overflow-y:auto; padding:5px; background:var(--card); color:var(--text);
+    border:1px solid var(--border-strong); border-radius:9px; box-shadow:0 12px 30px rgba(15,23,42,.18);
+}
+.assign-user-combobox.is-open .assign-user-options { display:block; }
+.assign-user-option {
+    width:100%; display:flex; align-items:center; gap:8px; padding:9px 10px; border:0;
+    border-radius:7px; background:transparent; color:var(--text); text-align:left; cursor:pointer;
+}
+.assign-user-option:hover, .assign-user-option.is-active { background:var(--azure-light,#e8f1fb); color:var(--azure); }
+.assign-user-option strong { min-width:120px; }
+.assign-user-option span { color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.license-app-title-wrap { min-width:0; flex:1; }
+.license-app-title { font-weight:750; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.license-app-title-wrap code { display:block; margin-top:3px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.license-app-total { text-align:right; flex:0 0 auto; }
+.license-app-total strong { display:block; color:var(--azure); font-size:18px; line-height:1; }
+.license-app-total span { display:block; margin-top:4px; color:var(--text-muted); font-size:10px; text-transform:uppercase; }
+.license-app-users { max-height:215px; overflow-y:auto; }
+.license-user-row { display:flex; align-items:center; gap:9px; padding:10px 13px; border-bottom:1px solid var(--border); }
+.license-user-row:last-child { border-bottom:0; }
+.license-user-avatar { width:29px; height:29px; border-radius:50%; display:grid; place-items:center; background:var(--azure-light,#e8f1fb); color:var(--azure); font-size:12px; font-weight:800; }
+.license-user-info { min-width:0; flex:1; }
+.license-user-info strong { display:block; font-size:12px; overflow:hidden; text-overflow:ellipsis; }
+.license-user-info span { display:block; color:var(--text-muted); font-size:10px; margin-top:2px; }
+.license-user-qty { color:var(--azure); background:var(--azure-light,#e8f1fb); border-radius:999px; padding:3px 7px; font-size:11px; font-weight:750; }
+.license-revoke-btn { width:29px; min-width:29px; padding:4px; }
+.license-app-empty { grid-column:1/-1; padding:24px; text-align:center; color:var(--text-muted); }
+@media (max-width:700px) {
+    .license-app-grid { grid-template-columns:1fr; padding:0 10px 12px; }
+    .license-history-actions .search-box { width:100%; }
+}
 /* Software License Inventory & License Assignment History: chỉ hiển thị 5 dòng dữ liệu,
    phần còn lại cuộn dọc bên trong khung bảng thay vì kéo dài toàn trang. Nếu font/padding
    trong app.css thay đổi làm số dòng hiển thị lệch đi, chỉ cần chỉnh lại giá trị max-height. */
@@ -2216,13 +2496,87 @@ function filterLicenseTable() {
     }
 }
 
-function filterAssignTable() {
-    const f    = document.getElementById('assignSearchInput').value.toUpperCase();
-    const rows = document.getElementById('assignTable').getElementsByTagName('tr');
-    for (let i = 1; i < rows.length; i++) {
-        const text = Array.from(rows[i].getElementsByTagName('td')).map(c=>c.textContent).join(' ').toUpperCase();
-        rows[i].style.display = text.includes(f) ? '' : 'none';
+function filterAssignmentCards() {
+    const input = document.getElementById('assignSearchInput');
+    const grid = document.getElementById('assignmentAppGrid');
+    const empty = document.getElementById('assignmentSearchEmpty');
+    if (!input || !grid || !empty) return;
+    const query = input.value.trim().toLocaleLowerCase('vi');
+    let visible = 0;
+    grid.querySelectorAll('.license-app-card').forEach(card => {
+        const matches = !query || (card.dataset.search || '').toLocaleLowerCase('vi').includes(query);
+        card.style.display = matches ? '' : 'none';
+        if (matches) visible++;
+    });
+    empty.style.display = visible ? 'none' : 'block';
+}
+
+function toggleLicenseExportPicker(event) {
+    event.stopPropagation();
+    const picker = document.getElementById('licenseExportPicker');
+    if (!picker) return;
+    picker.classList.toggle('is-open');
+    updateLicenseExportCount();
+}
+
+function setAllLicenseExportApps(checked) {
+    document.querySelectorAll('#licenseExportMenu input[type="checkbox"]').forEach(input => input.checked = checked);
+    updateLicenseExportCount();
+}
+
+function updateLicenseExportCount() {
+    const all = document.querySelectorAll('#licenseExportMenu input[type="checkbox"]');
+    const selected = document.querySelectorAll('#licenseExportMenu input[type="checkbox"]:checked');
+    const count = document.getElementById('licenseExportCount');
+    if (count) count.textContent = `Đã chọn ${selected.length}/${all.length} app`;
+}
+
+function exportSelectedLicenseApps() {
+    const selected = Array.from(document.querySelectorAll('#licenseExportMenu input[type="checkbox"]:checked'));
+    if (!selected.length) {
+        showToast('Vui lòng chọn ít nhất một app để export', 'warning');
+        return;
     }
+    const params = new URLSearchParams();
+    selected.forEach(input => params.append('software_key', input.value));
+    window.location.href = '/export-licenses-csv?' + params.toString();
+    document.getElementById('licenseExportPicker')?.classList.remove('is-open');
+}
+
+document.addEventListener('change', event => {
+    if (event.target.matches('#licenseExportMenu input[type="checkbox"]')) updateLicenseExportCount();
+});
+document.addEventListener('click', event => {
+    const picker = document.getElementById('licenseExportPicker');
+    if (picker && !picker.contains(event.target)) picker.classList.remove('is-open');
+});
+
+function importLicenseAssignments(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    showLoading();
+    fetch('/api/import-license-assignments', { method:'POST', body:form })
+        .then(async response => {
+            const data = await response.json().catch(() => ({status:'error', message:'Phản hồi máy chủ không hợp lệ.'}));
+            if (!response.ok) throw data;
+            return data;
+        })
+        .then(data => {
+            hideLoading();
+            input.value = '';
+            showToast(`Đã import ${data.assignment_count} lượt cấp (${data.quantity} license)`, 'success');
+            setTimeout(() => window.location.reload(), 700);
+        })
+        .catch(error => {
+            hideLoading();
+            input.value = '';
+            const details = Array.isArray(error.errors) && error.errors.length > 1
+                ? '\n\n' + error.errors.slice(0, 10).join('\n') : '';
+            showToast(error.message || 'Import Excel thất bại', 'danger');
+            if (details) alert((error.message || 'Import Excel thất bại') + details);
+        });
 }
 
 // ── Sort table khi click header ──
@@ -2256,6 +2610,30 @@ function sortTable(tableId, colIdx) {
     }
 }
 
+function filterAllocationHistory() {
+    const table = document.getElementById('allocationHistoryTable');
+    if (!table) return;
+    const query = (document.getElementById('allocationSearchInput').value || '').toLocaleLowerCase('vi');
+    const type = document.getElementById('allocationTypeFilter').value;
+    const action = document.getElementById('allocationActionFilter').value;
+    table.querySelectorAll('tbody tr:not(.allocation-empty-row)').forEach(row => {
+        const matchesText = !query || row.textContent.toLocaleLowerCase('vi').includes(query);
+        const matchesType = !type || row.dataset.type === type;
+        const matchesAction = !action || row.dataset.action === action;
+        row.style.display = matchesText && matchesType && matchesAction ? '' : 'none';
+    });
+}
+
+function exportUserAllocationHistory() {
+    const suggested = document.getElementById('allocationSearchInput')?.value.trim() || '';
+    const username = prompt('Nhập chính xác username cần export:', suggested);
+    if (username === null) return;
+    if (!username.trim()) {
+        showToast('Vui lòng nhập username', 'warning');
+        return;
+    }
+    window.location.href = '/export-allocation-history.xlsx?username=' + encodeURIComponent(username.trim());
+}
 // ─────────────────────── AUDIT FILTER ───────────────────────
 function filterAuditTable() {
     const f      = document.getElementById('auditSearchInput').value.toUpperCase();

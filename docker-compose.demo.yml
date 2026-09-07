@@ -1,0 +1,22 @@
+services:
+  db:
+    container_name: it_dashboard_demo_db
+    environment:
+      POSTGRES_DB: it_dashboard_demo
+    volumes:
+      - pgdata_demo:/var/lib/postgresql/data
+
+  web-app:
+    container_name: it_dashboard_demo_app
+    ports:
+      - "8080:5000"
+    environment:
+      - DEMO_MODE=1
+      - DB_HOST=db
+      - DB_NAME=it_dashboard_demo
+      - DB_USER=postgres
+      - DB_PASS=${AD_DB_PASS}
+      - FLASK_SECRET_KEY=demo-only-local-secret-not-for-production
+
+volumes:
+  pgdata_demo:

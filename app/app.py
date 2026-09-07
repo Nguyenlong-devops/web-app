@@ -8,12 +8,13 @@ import secrets
 import threading
 import psycopg2
 import paramiko
-from datetime import timedelta
-from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response, session
+from datetime import timedelta, datetime
+from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response, session, has_request_context
 from ldap3 import Server, Connection, ALL
 import socket
 
 app = Flask(__name__)
+DEMO_MODE = os.environ.get('DEMO_MODE', '').lower() in ('1', 'true', 'yes')
 
 # ── Secret key: PHẢI lấy từ biến môi trường, không hard-code trong source ──
 # (session Flask mặc định ký ở client — ai có key này có thể tự tạo cookie is_admin=True
@@ -35,7 +36,13 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'       # giảm rủi ro CSRF cho c
 
 @app.before_request
 def _enforce_idle_session_timeout():
-    session.permanent = True  # bắt buộc áp dụng PERMANENT_SESSION_LIFETIME ở trên cho mọi session
+    session.permanent = True
+    if DEMO_MODE:
+        session.setdefault('user', 'demo.admin')
+        session.setdefault('display_name', 'Demo Administrator')
+        session.setdefault('is_admin', True)
+        session.setdefault('domain_id', 'demo')
+        session.setdefault('csrf_token', secrets.token_hex(24))  # bắt buộc áp dụng PERMANENT_SESSION_LIFETIME ở trên cho mọi session
 
 # ── CSRF protection: mọi request POST/PUT/PATCH/DELETE của user đã đăng nhập phải kèm đúng
 # csrf_token của session đó (qua header X-CSRF-Token — tự động gắn bởi JS ở index.html — hoặc
@@ -87,13 +94,19 @@ app.jinja_env.filters['dn_to_ou'] = _dn_to_ou_path
 #  DB helpers
 # ─────────────────────────────────────────────
 def get_db_connection():
-    return psycopg2.connect(
+    conn = psycopg2.connect(
         host=os.environ.get('DB_HOST', 'db'),
         database=os.environ.get('DB_NAME', 'it_dashboard'),
         user=os.environ.get('DB_USER', 'postgres'),
         password=os.environ.get('DB_PASS', 'AureoleIT@2026'),
-        options='-c timezone=Asia/Ho_Chi_Minh'  # hiển thị mọi TIMESTAMPTZ (audit log, ...) theo giờ VN (+7)
+        options='-c timezone=Asia/Ho_Chi_Minh'
     )
+    # PostgreSQL triggers use this transaction/session value to retain who made
+    # an allocation change, including changes made through bulk import routes.
+    actor = session.get('user', 'system') if has_request_context() else 'system'
+    with conn.cursor() as actor_cur:
+        actor_cur.execute("SELECT set_config('app.actor', %s, false)", (actor,))
+    return conn
 
 def init_db():
     """Khởi tạo tất cả bảng và constraint cần thiết.
@@ -250,6 +263,124 @@ def init_db():
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )""",
         """ALTER TABLE handover_records ADD COLUMN IF NOT EXISTS revoke_date DATE""",
+
+        # Immutable per-user allocation history for devices and software licenses.
+        """CREATE TABLE IF NOT EXISTS allocation_history (
+            id              BIGSERIAL PRIMARY KEY,
+            ts              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            sam_account_name VARCHAR(128) NOT NULL,
+            resource_type   VARCHAR(16) NOT NULL CHECK (resource_type IN ('DEVICE','LICENSE')),
+            action          VARCHAR(16) NOT NULL CHECK (action IN ('ASSIGN','REVOKE','BASELINE')),
+            resource_id     VARCHAR(128),
+            resource_key    VARCHAR(255),
+            resource_name   VARCHAR(255),
+            quantity        INTEGER NOT NULL DEFAULT 1,
+            actor           VARCHAR(128) NOT NULL DEFAULT 'system',
+            detail          TEXT,
+            event_key       VARCHAR(512) UNIQUE
+        )""",
+        """CREATE INDEX IF NOT EXISTS idx_allocation_history_user_ts
+           ON allocation_history (sam_account_name, ts DESC)""",
+        """CREATE INDEX IF NOT EXISTS idx_allocation_history_type_action_ts
+           ON allocation_history (resource_type, action, ts DESC)""",
+
+        """CREATE OR REPLACE FUNCTION log_user_computer_history() RETURNS TRIGGER AS $$
+        DECLARE
+            device_name VARCHAR(255);
+            device_code VARCHAR(128);
+            event_actor VARCHAR(128);
+        BEGIN
+            event_actor := COALESCE(NULLIF(current_setting('app.actor', true), ''), 'system');
+            SELECT computer_name, asset_code INTO device_name, device_code
+            FROM computers WHERE id=COALESCE(NEW.computer_id, OLD.computer_id);
+            IF TG_OP = 'INSERT' THEN
+                INSERT INTO allocation_history
+                    (ts, sam_account_name, resource_type, action, resource_id, resource_key,
+                     resource_name, quantity, actor, detail)
+                VALUES (COALESCE(NEW.assigned_at, NOW()), NEW.sam_account_name, 'DEVICE', 'ASSIGN',
+                        NEW.computer_id::text, device_code, device_name, 1, event_actor,
+                        'Cấp thiết bị cho user');
+                RETURN NEW;
+            ELSIF TG_OP = 'DELETE' THEN
+                INSERT INTO allocation_history
+                    (sam_account_name, resource_type, action, resource_id, resource_key,
+                     resource_name, quantity, actor, detail)
+                VALUES (OLD.sam_account_name, 'DEVICE', 'REVOKE', OLD.computer_id::text,
+                        device_code, device_name, 1, event_actor, 'Thu hồi thiết bị từ user');
+                RETURN OLD;
+            END IF;
+            RETURN COALESCE(NEW, OLD);
+        END;
+        $$ LANGUAGE plpgsql""",
+        """DROP TRIGGER IF EXISTS trg_user_computer_history ON user_computers""",
+        """CREATE TRIGGER trg_user_computer_history
+           AFTER INSERT OR DELETE ON user_computers
+           FOR EACH ROW EXECUTE FUNCTION log_user_computer_history()""",
+
+        """CREATE OR REPLACE FUNCTION log_user_software_history() RETURNS TRIGGER AS $$
+        DECLARE
+            software_name_value VARCHAR(255);
+            event_actor VARCHAR(128);
+            delta INTEGER;
+        BEGIN
+            event_actor := COALESCE(NULLIF(current_setting('app.actor', true), ''), 'system');
+            SELECT software_name INTO software_name_value FROM software_inventory
+            WHERE software_key=COALESCE(NEW.software_key, OLD.software_key);
+            IF TG_OP = 'INSERT' THEN
+                INSERT INTO allocation_history
+                    (ts, sam_account_name, resource_type, action, resource_key,
+                     resource_name, quantity, actor, detail)
+                VALUES (COALESCE(NEW.assigned_at, NOW()), NEW.sam_account_name, 'LICENSE', 'ASSIGN',
+                        NEW.software_key, software_name_value, NEW.quantity, event_actor, 'Cấp license cho user');
+                RETURN NEW;
+            ELSIF TG_OP = 'UPDATE' THEN
+                delta := NEW.quantity - OLD.quantity;
+                IF delta <> 0 THEN
+                    INSERT INTO allocation_history
+                        (sam_account_name, resource_type, action, resource_key,
+                         resource_name, quantity, actor, detail)
+                    VALUES (NEW.sam_account_name, 'LICENSE',
+                            CASE WHEN delta > 0 THEN 'ASSIGN' ELSE 'REVOKE' END,
+                            NEW.software_key, software_name_value, ABS(delta), event_actor,
+                            CASE WHEN delta > 0 THEN 'Cấp thêm license cho user' ELSE 'Thu hồi một phần license' END);
+                END IF;
+                RETURN NEW;
+            ELSIF TG_OP = 'DELETE' THEN
+                INSERT INTO allocation_history
+                    (sam_account_name, resource_type, action, resource_key,
+                     resource_name, quantity, actor, detail)
+                VALUES (OLD.sam_account_name, 'LICENSE', 'REVOKE', OLD.software_key,
+                        software_name_value, OLD.quantity, event_actor, 'Thu hồi toàn bộ license');
+                RETURN OLD;
+            END IF;
+            RETURN COALESCE(NEW, OLD);
+        END;
+        $$ LANGUAGE plpgsql""",
+        """DROP TRIGGER IF EXISTS trg_user_software_history ON user_software""",
+        """CREATE TRIGGER trg_user_software_history
+           AFTER INSERT OR UPDATE OF quantity OR DELETE ON user_software
+           FOR EACH ROW EXECUTE FUNCTION log_user_software_history()""",
+
+        # One-time baseline for assignments that existed before history tracking.
+        """INSERT INTO allocation_history
+            (ts, sam_account_name, resource_type, action, resource_id, resource_key,
+             resource_name, quantity, actor, detail, event_key)
+           SELECT uc.assigned_at, uc.sam_account_name, 'DEVICE', 'BASELINE', c.id::text,
+                  c.asset_code, c.computer_name, 1, 'migration',
+                  'Thiết bị đang được cấp khi bắt đầu theo dõi lịch sử',
+                  'baseline:device:' || uc.sam_account_name || ':' || c.id
+           FROM user_computers uc JOIN computers c ON c.id=uc.computer_id
+           ON CONFLICT (event_key) DO NOTHING""",
+        """INSERT INTO allocation_history
+            (ts, sam_account_name, resource_type, action, resource_key,
+             resource_name, quantity, actor, detail, event_key)
+           SELECT us.assigned_at, us.sam_account_name, 'LICENSE', 'BASELINE', us.software_key,
+                  si.software_name, us.quantity, 'migration',
+                  'License đang được cấp khi bắt đầu theo dõi lịch sử',
+                  'baseline:license:' || us.sam_account_name || ':' || us.software_key
+           FROM user_software us
+           LEFT JOIN software_inventory si ON si.software_key=us.software_key
+           ON CONFLICT (event_key) DO NOTHING""",
     ]
 
     for sql in steps:
@@ -337,6 +468,8 @@ def save_domain_config(cfg: dict):
         conn.close()
 
 def list_active_domain_configs():
+    if DEMO_MODE:
+        return [{'id': 'demo', 'ldap_host': 'demo-dc.local', 'domain_suffix': '@demo.local'}]
     """Danh sách domain đang khả dụng để chọn khi đăng nhập (mỗi domain_suffix chỉ lấy bản
     ghi is_active mới nhất). Dùng cho dropdown chọn domain ở trang /login."""
     conn = get_db_connection()
@@ -403,6 +536,12 @@ def get_domain_config_by_id(domain_id):
         conn.close()
 
 def current_domain_cfg():
+    if DEMO_MODE:
+        return {
+            'id': 'demo', 'ldap_host': 'demo-dc.local', 'domain_suffix': '@demo.local',
+            'base_dn': 'DC=demo,DC=local', 'admin_group_dn': 'CN=Domain Admins,DC=demo,DC=local',
+            'ssh_host': 'demo-dc.local', 'ssh_user': 'Administrator', 'ssh_pass': ''
+        }
     """Trả về config domain gắn với SESSION hiện tại (mỗi phiên đăng nhập độc lập với 1 domain
     riêng — đây là điểm khác biệt cốt lõi so với get_active_domain_config() cũ, vốn dùng chung
     1 "domain active" duy nhất cho toàn bộ hệ thống/mọi người dùng).
@@ -670,6 +809,19 @@ _AD_CACHE_TTL = 120  # giây — sau thời gian này, dữ liệu được coi 
 _AD_CACHE_REFRESHING = set()  # domain_key nào đang có 1 luồng background refresh chạy dở
 
 def get_ad_users_and_groups(cfg, force_refresh=False):
+    if DEMO_MODE:
+        users = [
+            {'SamAccountName':'an.nguyen','Name':'Nguyễn Minh An','Enabled':True,'DistinguishedName':'CN=Nguyễn Minh An,OU=Users,DC=demo,DC=local','Groups':'IT,Microsoft 365'},
+            {'SamAccountName':'binh.tran','Name':'Trần Gia Bình','Enabled':True,'DistinguishedName':'CN=Trần Gia Bình,OU=Users,DC=demo,DC=local','Groups':'Design,Adobe'},
+            {'SamAccountName':'chi.le','Name':'Lê Mai Chi','Enabled':True,'DistinguishedName':'CN=Lê Mai Chi,OU=Users,DC=demo,DC=local','Groups':'Finance,Zoom'},
+            {'SamAccountName':'dung.pham','Name':'Phạm Quốc Dũng','Enabled':True,'DistinguishedName':'CN=Phạm Quốc Dũng,OU=Users,DC=demo,DC=local','Groups':'Engineering'},
+            {'SamAccountName':'disabled.user','Name':'Tài Khoản Đã Khóa','Enabled':False,'DistinguishedName':'CN=Disabled,OU=Users,DC=demo,DC=local','Groups':''}
+        ]
+        groups = [
+            {'SamAccountName':'IT','Name':'IT','DistinguishedName':'CN=IT,OU=Groups,DC=demo,DC=local','Description':'Information Technology'},
+            {'SamAccountName':'Design','Name':'Design','DistinguishedName':'CN=Design,OU=Groups,DC=demo,DC=local','Description':'Design team'}
+        ]
+        return users, groups, None
     """Trả về (ad_users, ad_groups, error). `error` là None khi lấy dữ liệu thành công (kể cả
     khi AD thực sự không có user/group nào) — chỉ khác None khi việc kết nối/thực thi PowerShell
     thất bại, để phân biệt rõ "0 vì AD trống" với "0 vì không lấy được dữ liệu" (trước đây 2
@@ -775,6 +927,8 @@ def _fetch_and_cache_ad_data(cfg, domain_key):
 _OU_FILTER_SECTIONS = ('users', 'computers', 'groups')
 
 def get_ou_filter(section: str):
+    if DEMO_MODE:
+        return []
     """Trả về danh sách DistinguishedName các OU đang được chọn để hiển thị
     cho khu vực (section) tương ứng. Danh sách rỗng = không lọc (hiển thị tất cả)."""
     conn = get_db_connection(); cur = conn.cursor()
@@ -1153,9 +1307,49 @@ def index():
         if groups_ou_filter:
             ad_groups = filter_by_ou(ad_groups, groups_ou_filter, lambda g: g.get('DistinguishedName', ''))
 
+    if DEMO_MODE:
+        now = datetime.now()
+        software_list = [
+            (1, 'M365-BUSINESS', 'Microsoft 365 Business', 50, 2, 48),
+            (2, 'ADOBE-CREATIVE', 'Adobe Creative Cloud', 20, 1, 19),
+            (3, 'ZOOM-PRO', 'Zoom Workplace Pro', 30, 2, 28),
+            (4, 'CHROME-ENTERPRISE', 'Google Chrome Enterprise', 100, 1, 99),
+        ]
+        assigned_list = [
+            (1, 'an.nguyen', 'M365-BUSINESS', 1, now - timedelta(days=5), 'Microsoft 365 Business'),
+            (2, 'binh.tran', 'M365-BUSINESS', 1, now - timedelta(days=3), 'Microsoft 365 Business'),
+            (3, 'binh.tran', 'ADOBE-CREATIVE', 1, now - timedelta(days=2), 'Adobe Creative Cloud'),
+            (4, 'chi.le', 'ZOOM-PRO', 2, now - timedelta(hours=18), 'Zoom Workplace Pro'),
+            (5, 'dung.pham', 'CHROME-ENTERPRISE', 1, now - timedelta(hours=4), 'Google Chrome Enterprise'),
+        ]
+        app_map = {}
+        for row in assigned_list:
+            app_item = app_map.setdefault(row[2], {
+                'software_key': row[2], 'software_name': row[5],
+                'total_quantity': 0, 'assignments': []
+            })
+            app_item['total_quantity'] += row[3]
+            app_item['assignments'].append({
+                'username': row[1], 'quantity': row[3], 'assigned_at': row[4]
+            })
+        demo_history = [
+            (5, now - timedelta(hours=4), 'dung.pham', 'LICENSE', 'ASSIGN', 'CHROME-ENTERPRISE', 'Google Chrome Enterprise', 1, 'demo.admin', 'Cấp license cho user'),
+            (4, now - timedelta(hours=18), 'chi.le', 'LICENSE', 'ASSIGN', 'ZOOM-PRO', 'Zoom Workplace Pro', 2, 'demo.admin', 'Cấp license cho user'),
+            (3, now - timedelta(days=1), 'an.nguyen', 'DEVICE', 'REVOKE', 'AIT-LT-018', 'Dell Latitude 7440', 1, 'demo.admin', 'Thu hồi thiết bị từ user'),
+            (2, now - timedelta(days=5), 'an.nguyen', 'DEVICE', 'ASSIGN', 'AIT-LT-018', 'Dell Latitude 7440', 1, 'demo.admin', 'Cấp thiết bị cho user'),
+            (1, now - timedelta(days=7), 'binh.tran', 'LICENSE', 'BASELINE', 'ADOBE-CREATIVE', 'Adobe Creative Cloud', 1, 'migration', 'License đang được cấp khi bắt đầu theo dõi lịch sử'),
+        ]
+        return render_template(
+            'index.html', ad_users=ad_users, ad_groups=ad_groups, ad_error=None,
+            software_list=software_list, assigned_list=assigned_list,
+            assignment_apps=list(app_map.values()), audit_rows=[], allocation_history=demo_history, my_computers=[],
+            my_licenses=[], domain_info=cfg
+        )
     software_list = []
     assigned_list = []
+    assignment_apps = []
     audit_rows    = []
+    allocation_history = []
     my_computers  = []
     my_licenses   = []
     conn = get_db_connection()
@@ -1170,8 +1364,11 @@ def index():
             software_list = cur.fetchall()
 
             cur.execute("""
-                SELECT us.id, us.sam_account_name, us.software_key, COALESCE(us.quantity,1), us.assigned_at
-                FROM user_software us ORDER BY us.id DESC
+                SELECT us.id, us.sam_account_name, us.software_key, COALESCE(us.quantity,1),
+                       us.assigned_at, COALESCE(si.software_name, us.software_key)
+                FROM user_software us
+                LEFT JOIN software_inventory si ON si.software_key = us.software_key
+                ORDER BY si.software_name, us.software_key, us.assigned_at DESC
             """)
             assigned_list = cur.fetchall()
 
@@ -1186,11 +1383,31 @@ def index():
                 domain_usernames = {u.get('SamAccountName', '').lower() for u in ad_users if u.get('SamAccountName')}
                 assigned_list = [row for row in assigned_list if row[1] and row[1].lower() in domain_usernames]
 
+            # Gom các lượt cấp theo ứng dụng để giao diện hiển thị mỗi app thành một thẻ.
+            app_map = {}
+            for row in assigned_list:
+                app = app_map.setdefault(row[2], {
+                    'software_key': row[2], 'software_name': row[5],
+                    'total_quantity': 0, 'assignments': []
+                })
+                app['total_quantity'] += row[3]
+                app['assignments'].append({
+                    'username': row[1], 'quantity': row[3], 'assigned_at': row[4]
+                })
+            assignment_apps = list(app_map.values())
+
             cur.execute("""
                 SELECT id, ts, actor, action, target, detail, ip_address
                 FROM audit_log ORDER BY id DESC LIMIT 200
             """)
             audit_rows = cur.fetchall()
+
+            cur.execute("""
+                SELECT id, ts, sam_account_name, resource_type, action,
+                       resource_key, resource_name, quantity, actor, detail
+                FROM allocation_history ORDER BY ts DESC, id DESC LIMIT 500
+            """)
+            allocation_history = cur.fetchall()
         else:
             # User thường: CHỈ lấy đúng computer/license của chính họ — không đụng tới
             # dữ liệu của người khác hay danh sách AD user/group toàn công ty.
@@ -1220,7 +1437,9 @@ def index():
         ad_error=ad_error,
         software_list=software_list,
         assigned_list=assigned_list,
+        assignment_apps=assignment_apps,
         audit_rows=audit_rows,
+        allocation_history=allocation_history,
         my_computers=my_computers,
         my_licenses=my_licenses,
         domain_info=cfg
@@ -1515,6 +1734,20 @@ def assign_software_direct():
     software_key     = request.form.get('software_key')
     quantity         = int(request.form.get('quantity', 1))
 
+    # Validate on the server too, so a forged request cannot assign a license
+    # to an AD account that has been disabled.
+    cfg = current_domain_cfg()
+    ad_users, _, _ = get_ad_users_and_groups(cfg)
+    selected_user = next(
+        (u for u in ad_users
+         if (u.get('SamAccountName') or '').lower() == (sam_account_name or '').lower()),
+        None
+    )
+    if not selected_user or not selected_user.get('Enabled'):
+        write_log(session['user'], 'ASSIGN_LICENSE_REJECTED', target=sam_account_name,
+                  detail='AD user does not exist or is disabled')
+        return redirect(url_for('index'))
+
     conn = get_db_connection()
     cur  = conn.cursor()
     try:
@@ -1558,9 +1791,19 @@ def assign_software_direct():
 @domain_required
 @admin_required
 def export_licenses_csv():
+    selected_keys = [key.strip() for key in request.args.getlist('software_key') if key.strip()]
     conn = get_db_connection()
     cur  = conn.cursor()
-    cur.execute("SELECT sam_account_name, software_key, quantity, assigned_at FROM user_software ORDER BY id DESC")
+    if selected_keys:
+        placeholders = ','.join(['%s'] * len(selected_keys))
+        cur.execute(f"""
+            SELECT sam_account_name, software_key, quantity, assigned_at
+            FROM user_software
+            WHERE software_key IN ({placeholders})
+            ORDER BY id DESC
+        """, selected_keys)
+    else:
+        cur.execute("SELECT sam_account_name, software_key, quantity, assigned_at FROM user_software ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -1571,7 +1814,8 @@ def export_licenses_csv():
     for r in rows:
         cw.writerow([r[0], r[1], r[2], r[3].strftime('%Y-%m-%d %H:%M:%S') if r[3] else ''])
 
-    write_log(session['user'], 'EXPORT_CSV', detail='Exported license assignment CSV')
+    export_scope = ', '.join(selected_keys) if selected_keys else 'ALL'
+    write_log(session['user'], 'EXPORT_CSV', detail=f'Exported license assignment CSV; apps={export_scope}')
     output = make_response(si.getvalue().encode('utf-8-sig'))
     output.headers["Content-Disposition"] = "attachment; filename=assigned_licenses.csv"
     output.headers["Content-type"] = "text/csv; charset=utf-8"
@@ -1580,6 +1824,250 @@ def export_licenses_csv():
 # ─────────────────────────────────────────────
 #  Export Audit Log CSV
 # ─────────────────────────────────────────────
+@app.route('/api/import-license-assignments', methods=['POST'])
+@domain_required
+@admin_required
+def api_import_license_assignments():
+    """Import license assignments from an .xlsx workbook.
+
+    Required columns: User, License Key, Quantity. The operation is atomic: any
+    invalid row or insufficient inventory rejects the whole workbook.
+    """
+    import unicodedata
+    from openpyxl import load_workbook
+
+    upload = request.files.get('file')
+    if not upload or not upload.filename:
+        return jsonify({'status': 'error', 'message': 'Vui lòng chọn file Excel.'}), 400
+    if not upload.filename.lower().endswith(('.xlsx', '.xlsm')):
+        return jsonify({'status': 'error', 'message': 'Chỉ hỗ trợ file Excel .xlsx hoặc .xlsm.'}), 400
+
+    raw = upload.stream.read(5 * 1024 * 1024 + 1)
+    if len(raw) > 5 * 1024 * 1024:
+        return jsonify({'status': 'error', 'message': 'File vượt quá giới hạn 5 MB.'}), 400
+
+    def normalize_header(value):
+        text = unicodedata.normalize('NFD', str(value or '').strip().lower())
+        return ''.join(ch for ch in text if unicodedata.category(ch) != 'Mn').replace('_', ' ')
+
+    try:
+        workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        sheet = workbook.active
+        rows = sheet.iter_rows(values_only=True)
+        headers = next(rows, None)
+        if not headers:
+            return jsonify({'status': 'error', 'message': 'File Excel không có dữ liệu.'}), 400
+
+        aliases = {
+            'user': {'user', 'username', 'samaccountname', 'sam account name', 'tai khoan'},
+            'key': {'license key', 'software key', 'key', 'ma license', 'ma ban quyen'},
+            'quantity': {'quantity', 'qty', 'so luong'},
+        }
+        normalized = [normalize_header(h) for h in headers]
+        columns = {}
+        for field, names in aliases.items():
+            columns[field] = next((i for i, h in enumerate(normalized) if h in names), None)
+        missing = [name for name, idx in columns.items() if idx is None]
+        if missing:
+            return jsonify({
+                'status': 'error',
+                'message': 'Thiếu cột bắt buộc: User, License Key, Quantity.'
+            }), 400
+
+        imported_rows = []
+        errors = []
+        for excel_row, values in enumerate(rows, start=2):
+            if excel_row > 5001:
+                errors.append('File chỉ được chứa tối đa 5.000 dòng dữ liệu.')
+                break
+            user = str(values[columns['user']] or '').strip() if columns['user'] < len(values) else ''
+            key = str(values[columns['key']] or '').strip() if columns['key'] < len(values) else ''
+            qty_raw = values[columns['quantity']] if columns['quantity'] < len(values) else None
+            if not user and not key and qty_raw in (None, ''):
+                continue
+            try:
+                qty_number = float(qty_raw)
+                quantity = int(qty_number)
+                if quantity <= 0 or quantity != qty_number:
+                    raise ValueError
+            except (TypeError, ValueError, OverflowError):
+                errors.append(f'Dòng {excel_row}: Quantity phải là số nguyên lớn hơn 0.')
+                continue
+            if not user or not key:
+                errors.append(f'Dòng {excel_row}: User và License Key không được để trống.')
+                continue
+            imported_rows.append((excel_row, user, key, quantity))
+
+        if not imported_rows and not errors:
+            errors.append('File Excel không có dòng dữ liệu hợp lệ.')
+        if errors:
+            return jsonify({'status': 'error', 'message': errors[0], 'errors': errors[:20]}), 400
+    except Exception as exc:
+        return jsonify({'status': 'error', 'message': f'Không đọc được file Excel: {exc}'}), 400
+    finally:
+        try:
+            workbook.close()
+        except Exception:
+            pass
+
+    cfg = current_domain_cfg()
+    ad_users, _, ad_error = get_ad_users_and_groups(cfg)
+    if ad_error:
+        return jsonify({'status': 'error', 'message': f'Không thể kiểm tra user AD: {ad_error}'}), 503
+    active_users = {
+        (u.get('SamAccountName') or '').lower(): u.get('SamAccountName')
+        for u in ad_users if u.get('Enabled') and u.get('SamAccountName')
+    }
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT software_key, total_licenses, used_licenses
+            FROM software_inventory FOR UPDATE
+        """)
+        inventory = {row[0].lower(): row for row in cur.fetchall()}
+        assignments = {}
+        validation_errors = []
+        for excel_row, user, key, quantity in imported_rows:
+            canonical_user = active_users.get(user.lower())
+            stock = inventory.get(key.lower())
+            if not canonical_user:
+                validation_errors.append(f'Dòng {excel_row}: user "{user}" không tồn tại hoặc không active.')
+            elif not stock:
+                validation_errors.append(f'Dòng {excel_row}: License Key "{key}" không tồn tại trong kho.')
+            else:
+                pair = (canonical_user, stock[0])
+                assignments[pair] = assignments.get(pair, 0) + quantity
+
+        required_by_key = {}
+        for (_, key), quantity in assignments.items():
+            required_by_key[key] = required_by_key.get(key, 0) + quantity
+        for key, required in required_by_key.items():
+            stock = inventory[key.lower()]
+            available = stock[1] - stock[2]
+            if required > available:
+                validation_errors.append(
+                    f'License "{key}" chỉ còn {available}, nhưng file yêu cầu {required}.'
+                )
+        if validation_errors:
+            conn.rollback()
+            return jsonify({
+                'status': 'error', 'message': validation_errors[0],
+                'errors': validation_errors[:20]
+            }), 400
+
+        for (username, key), quantity in assignments.items():
+            cur.execute("""
+                INSERT INTO user_software (sam_account_name, software_key, quantity, assigned_at)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (sam_account_name, software_key)
+                DO UPDATE SET quantity=user_software.quantity + EXCLUDED.quantity, assigned_at=NOW()
+            """, (username, key, quantity))
+        for key, quantity in required_by_key.items():
+            cur.execute("""
+                UPDATE software_inventory
+                SET used_licenses=used_licenses + %s WHERE software_key=%s
+            """, (quantity, key))
+        conn.commit()
+        total_quantity = sum(assignments.values())
+        write_log(session['user'], 'IMPORT_LICENSE_ASSIGNMENTS',
+                  detail=f'{len(assignments)} assignments, quantity={total_quantity}, file={upload.filename}')
+        return jsonify({
+            'status': 'success', 'assignment_count': len(assignments),
+            'quantity': total_quantity
+        })
+    except Exception as exc:
+        conn.rollback()
+        return jsonify({'status': 'error', 'message': f'Import thất bại: {exc}'}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route('/export-allocation-history.xlsx')
+@domain_required
+@admin_required
+def export_allocation_history_xlsx():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    username = (request.args.get('username') or '').strip()
+    if DEMO_MODE:
+        now = datetime.now()
+        rows = [
+            (now - timedelta(hours=4), 'dung.pham', 'LICENSE', 'ASSIGN', 'CHROME-ENTERPRISE', 'Google Chrome Enterprise', 1, 'demo.admin', 'Cấp license cho user'),
+            (now - timedelta(hours=18), 'chi.le', 'LICENSE', 'ASSIGN', 'ZOOM-PRO', 'Zoom Workplace Pro', 2, 'demo.admin', 'Cấp license cho user'),
+            (now - timedelta(days=1), 'an.nguyen', 'DEVICE', 'REVOKE', 'AIT-LT-018', 'Dell Latitude 7440', 1, 'demo.admin', 'Thu hồi thiết bị từ user'),
+            (now - timedelta(days=5), 'an.nguyen', 'DEVICE', 'ASSIGN', 'AIT-LT-018', 'Dell Latitude 7440', 1, 'demo.admin', 'Cấp thiết bị cho user'),
+        ]
+        if username:
+            rows = [row for row in rows if row[1].lower() == username.lower()]
+    else:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            sql = """
+                SELECT ts, sam_account_name, resource_type, action, resource_key,
+                       resource_name, quantity, actor, detail
+                FROM allocation_history
+            """
+            params = []
+            if username:
+                sql += " WHERE LOWER(sam_account_name)=LOWER(%s)"
+                params.append(username)
+            sql += " ORDER BY ts DESC, id DESC"
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+        finally:
+            cur.close()
+            conn.close()
+
+    def excel_safe(value):
+        if isinstance(value, str) and value.startswith(('=', '+', '-', '@')):
+            return "'" + value
+        return value
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    headers = ['Thời gian', 'User', 'Loại tài sản', 'Hành động', 'Mã/Key',
+               'Tên tài sản/Ứng dụng', 'Số lượng', 'Người thao tác', 'Chi tiết']
+    header_fill = PatternFill('solid', fgColor='0F6CBD')
+    header_font = Font(color='FFFFFF', bold=True)
+
+    for sheet_name, resource_filter in (
+        ('Toàn bộ lịch sử', None), ('Thiết bị', 'DEVICE'), ('License', 'LICENSE')
+    ):
+        ws = wb.create_sheet(sheet_name)
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center')
+        for row in rows:
+            if resource_filter and row[2] != resource_filter:
+                continue
+            ws.append([
+                row[0].replace(tzinfo=None) if row[0] else None,
+                excel_safe(row[1]), row[2], row[3], excel_safe(row[4] or ''),
+                excel_safe(row[5] or ''), row[6], excel_safe(row[7]), excel_safe(row[8] or '')
+            ])
+        ws.freeze_panes = 'A2'
+        ws.auto_filter.ref = ws.dimensions
+        widths = [20, 20, 16, 14, 24, 32, 12, 20, 48]
+        for index, width in enumerate(widths, start=1):
+            ws.column_dimensions[chr(64 + index)].width = width
+
+    output_stream = io.BytesIO()
+    wb.save(output_stream)
+    output_stream.seek(0)
+    filename = f"allocation_history_{username}.xlsx" if username else 'allocation_history_all.xlsx'
+    response = make_response(output_stream.getvalue())
+    response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    write_log(session['user'], 'EXPORT_ALLOCATION_HISTORY', target=username or 'ALL',
+              detail=f'Exported {len(rows)} allocation history records')
+    return response
+
 @app.route('/export-audit-csv')
 @domain_required
 @admin_required
@@ -2717,20 +3205,23 @@ def api_revoke_license_direct():
 # Chạy init_db() ở module level với retry — đảm bảo chạy được dù
 # PostgreSQL container chưa sẵn sàng ngay khi Flask khởi động.
 import time as _time
-for _attempt in range(10):
-    try:
-        init_db()
-        print(f"[startup] init_db OK (attempt {_attempt + 1})")
-        break
-    except Exception as _e:
-        print(f"[startup] init_db attempt {_attempt + 1}/10 failed: {_e}")
-        if _attempt < 9:
-            _time.sleep(3)
-        else:
-            print("[startup] init_db gave up after 10 attempts — DB may be unavailable")
+if DEMO_MODE:
+    print('[startup] DEMO_MODE enabled — skipping PostgreSQL and Active Directory initialization')
+else:
+    for _attempt in range(10):
+        try:
+            init_db()
+            print(f"[startup] init_db OK (attempt {_attempt + 1})")
+            break
+        except Exception as _e:
+            print(f"[startup] init_db attempt {_attempt + 1}/10 failed: {_e}")
+            if _attempt < 9:
+                _time.sleep(3)
+            else:
+                print("[startup] init_db gave up after 10 attempts — DB may be unavailable")
 
 if __name__ == '__main__':
     # debug=False: tắt Werkzeug interactive debugger — nếu bật, khi có lỗi chưa được
     # bắt (unhandled exception) sẽ hiện console Python tương tác ngay trên trình duyệt,
     # có thể dẫn tới thực thi mã tuỳ ý (RCE) nếu ai đó truy cập được vào lúc đó.
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='127.0.0.1' if DEMO_MODE else '0.0.0.0', port=5000, debug=False)
