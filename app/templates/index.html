@@ -20,6 +20,11 @@
 <!-- TOAST -->
 <div id="toastContainer" class="toast-container"></div>
 
+<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+    <symbol id="icon-import" viewBox="0 0 24 24"><path d="M12 16V3m0 0-4 4m4-4 4 4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-export" viewBox="0 0 24 24"><path d="M12 3v13m0 0-4-4m4 4 4-4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
 <div class="app-layout">
 
 <!-- ══════════════════ SIDEBAR ══════════════════ -->
@@ -423,6 +428,27 @@
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closeModal('handoverDateModal')">Hủy</button>
             <button class="btn btn-primary" onclick="confirmHandoverDate()">In Biên Bản</button>
+        </div>
+    </div>
+</div>
+
+<div id="importInventoryModal" class="modal">
+    <div class="modal-content" style="max-width:420px;">
+        <div class="modal-header">
+            <div class="modal-title">Import kho license</div>
+            <button class="close-btn" onclick="cancelSoftwareInventoryImport()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label for="importInventoryPassword">Mật khẩu Administrator</label>
+                <input type="password" id="importInventoryPassword" autocomplete="current-password" placeholder="Nhập mật khẩu để xác nhận"
+                    style="height:36px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--card);color:var(--text);font-size:13px;width:100%;"
+                    onkeydown="if(event.key==='Enter') submitSoftwareInventoryImport();">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="cancelSoftwareInventoryImport()">Hủy</button>
+            <button type="button" class="btn btn-primary btn-icon" title="Import kho license" aria-label="Import kho license" onclick="submitSoftwareInventoryImport()"><svg class="transfer-icon" aria-hidden="true"><use href="#icon-import"/></svg></button>
         </div>
     </div>
 </div>
@@ -957,7 +983,7 @@
                         <option value="disabled">Disabled</option>
                     </select>
                     {% if session.get('is_admin') %}
-                    <a href="/export-users-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export</a>
+                    <a href="/export-users-csv" class="btn btn-secondary btn-sm btn-icon" title="Export danh sách user CSV" aria-label="Export danh sách user CSV" style="text-decoration:none;"><svg class="transfer-icon" aria-hidden="true"><use href="#icon-export"/></svg></a>
                     <button class="btn btn-secondary btn-sm" title="Chọn OU hiển thị" onclick="openOuFilterModal('users')">⚙ Lọc OU</button>
                     <button class="btn btn-primary btn-sm" onclick="openPanel('create-user-panel', null); initCreateUserForm()">+ Tạo User</button>
                     {% endif %}
@@ -1020,7 +1046,11 @@
                 </div>
                 <div class="card-actions" style="flex-wrap:wrap;gap:6px;">
                     <input type="text" id="licenseSearchInput" class="search-box" placeholder="Tìm license..." oninput="filterLicenseTable()">
-                    <a href="/export-licenses-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export</a>
+                    <a href="/export-software-inventory-csv" class="btn btn-secondary btn-sm btn-icon" title="Export kho license CSV" aria-label="Export kho license CSV" style="text-decoration:none;"><svg class="transfer-icon" aria-hidden="true"><use href="#icon-export"/></svg></a>
+                    <label class="btn btn-secondary btn-sm btn-icon" title="Import kho license CSV/Excel" aria-label="Import kho license CSV/Excel" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.querySelector('input').click();}" style="cursor:pointer;">
+                        <svg class="transfer-icon" aria-hidden="true"><use href="#icon-import"/></svg>
+                        <input type="file" accept=".csv,.xlsx,.xlsm" hidden onchange="importSoftwareInventory(this)">
+                    </label>
                     {% if session.get('is_admin') %}
                     <button class="btn btn-primary btn-sm" onclick="openPanel('license-panel', null)">+ Thêm</button>
                     <button class="btn btn-secondary btn-sm" onclick="openPanel('assign-license-panel', null)">🔑 Cấp</button>
@@ -1080,12 +1110,12 @@
                 <div class="card-actions license-history-actions">
                     <input type="text" id="assignSearchInput" class="search-box"
                            placeholder="Tìm app, key hoặc user..." oninput="filterAssignmentCards()">
-                    <label class="btn btn-primary btn-sm" style="cursor:pointer;">
-                        ↑ Import Excel
+                    <label class="btn btn-primary btn-sm btn-icon" title="Import lịch sử cấp license Excel" aria-label="Import lịch sử cấp license Excel" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.querySelector('input').click();}" style="cursor:pointer;">
+                        <svg class="transfer-icon" aria-hidden="true"><use href="#icon-import"/></svg>
                         <input type="file" accept=".xlsx,.xlsm" hidden onchange="importLicenseAssignments(this)">
                     </label>
                     <div id="licenseExportPicker" class="license-export-picker">
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="toggleLicenseExportPicker(event)">↓ Export ▾</button>
+                        <button type="button" class="btn btn-secondary btn-sm btn-icon" title="Export lịch sử cấp license theo ứng dụng" aria-label="Export lịch sử cấp license theo ứng dụng" onclick="toggleLicenseExportPicker(event)"><svg class="transfer-icon" aria-hidden="true"><use href="#icon-export"/></svg></button>
                         <div id="licenseExportMenu" class="license-export-menu">
                             <div class="license-export-menu-head">
                                 <strong>Chọn app cần export</strong>
@@ -1104,7 +1134,7 @@
                             </div>
                             <div class="license-export-footer">
                                 <span id="licenseExportCount"></span>
-                                <button type="button" class="btn btn-primary btn-sm" onclick="exportSelectedLicenseApps()">Export đã chọn</button>
+                                <button type="button" class="btn btn-primary btn-sm btn-icon" title="Export ứng dụng đã chọn" aria-label="Export ứng dụng đã chọn" onclick="exportSelectedLicenseApps()"><svg class="transfer-icon" aria-hidden="true"><use href="#icon-export"/></svg></button>
                             </div>
                         </div>
                     </div>
@@ -1116,11 +1146,16 @@
             <div id="assignmentAppGrid" class="license-app-grid scroll-area">
                 {% for app in assignment_apps %}
                 {% set app_identity = (app.software_name ~ ' ' ~ app.software_key)|lower %}
+                {% set is_office_app = ('office' in app_identity or 'office20' in app_identity or 'office-20' in app_identity or 'microsoft 365' in app_identity or 'ms 365' in app_identity or 'o365' in app_identity) %}
                 <article class="license-app-card" data-search="{{ app.software_name }} {{ app.software_key }} {% for item in app.assignments %}{{ item.username }} {% endfor %}">
                     <div class="license-app-card-head">
-                        <div class="license-app-icon {% if 'office' in app_identity or '365' in app_identity %}icon-office{% elif 'windows' in app_identity or 'microsoft' in app_identity %}icon-microsoft{% elif 'creative cloud' in app_identity %}icon-creative-cloud{% elif 'adobe' in app_identity or 'acrobat' in app_identity %}icon-adobe{% elif 'zoom' in app_identity %}icon-zoom{% elif 'chrome' in app_identity %}icon-chrome{% elif 'google' in app_identity %}icon-google{% else %}icon-generic{% endif %}" title="{{ app.software_name }}">
-                            {% if 'office' in app_identity or '365' in app_identity %}
-                            <svg class="brand-logo" viewBox="0 0 32 32" aria-label="Microsoft 365"><path fill="#ea3e23" d="M12.7 3.2 25 7.5v17L12.7 28.8 5 23.4V8.6l7.7-5.4Zm1.5 6.1-5 1.8v9.8l5 1.8 6.6-2.4v-8.6l-6.6-2.4Zm0 3.4 3.7 1.3v4l-3.7 1.3-2.1-.8v-5l2.1-.8Z"/></svg>
+                        <div class="license-app-icon {% if is_office_app %}icon-office{% elif 'visual studio code' in app_identity or 'vscode' in app_identity %}icon-vscode{% elif 'visual studio' in app_identity %}icon-visual-studio{% elif 'windows' in app_identity or 'microsoft' in app_identity %}icon-microsoft{% elif 'creative cloud' in app_identity %}icon-creative-cloud{% elif 'adobe' in app_identity or 'acrobat' in app_identity %}icon-adobe{% elif 'zoom' in app_identity %}icon-zoom{% elif 'chrome' in app_identity %}icon-chrome{% elif 'google' in app_identity %}icon-google{% else %}icon-generic{% endif %}" title="{{ app.software_name }}">
+                            {% if is_office_app %}
+                            <svg class="brand-logo office-2019-logo" viewBox="0 0 32 32" aria-label="Microsoft Office 2019"><path fill="#c43b2b" d="M5 5.8 17.5 2 27 6.6v18.8L17.5 30 5 26.2v-6.1l9.4 2.9 4.1-1.7V10.7l-4.1-1.7L5 11.9V5.8Z"/><path fill="#f26b38" d="M5 5.8 14.4 9v14l-9.4-2.9V5.8Z"/><path fill="#fff" d="M14.4 9 18.5 10.7v10.6l-4.1 1.7V9Z"/><path fill="#e95732" d="M18.5 10.7 22 12.1v7.8l-3.5 1.4V10.7Z"/></svg>
+                            {% elif 'visual studio code' in app_identity or 'vscode' in app_identity %}
+                            <svg class="brand-logo" viewBox="0 0 32 32" aria-label="Visual Studio Code"><path fill="#007acc" d="M24.7 3.2 13.1 13.8 7.7 9.2 4 11.3l7.1 6.8L4 24.9l3.7 2.1 5.4-4.6 11.6 10.4 3.3-1.7V4.9l-3.3-1.7Z"/><path fill="#fff" d="m13.1 18.1 11.6-8.8v13.4l-11.6-8.8v4.2Z"/></svg>
+                            {% elif 'visual studio' in app_identity %}
+                            <svg class="brand-logo" viewBox="0 0 32 32" aria-label="Visual Studio"><path fill="#8661c5" d="m6.5 11.2 4.1-3.1 6.1 6.1L24.1 4 28 6.1v19.8L24.1 28l-7.4-10.2-6.1 6.1-4.1-3.1 6-5.1-6-4.5Zm17.6 1.4-4.7 3.4 4.7 3.4v-6.8Z"/></svg>
                             {% elif 'windows' in app_identity or 'microsoft' in app_identity %}
                             <svg class="brand-logo" viewBox="0 0 24 24" aria-label="Microsoft"><path fill="#f25022" d="M2 2h9v9H2z"/><path fill="#7fba00" d="M13 2h9v9h-9z"/><path fill="#00a4ef" d="M2 13h9v9H2z"/><path fill="#ffb900" d="M13 13h9v9h-9z"/></svg>
                             {% elif 'creative cloud' in app_identity %}
@@ -1139,7 +1174,7 @@
                         </div>
                         <div class="license-app-title-wrap">
                             <div class="license-app-title">{{ app.software_name }}</div>
-                            <code title="{{ app.software_key }}">{{ app.software_key }}</code>
+                            <code title="License key: {{ app.software_key }}">{{ app.software_key }}</code>
                         </div>
                         <div class="license-app-total" title="Tổng số license đã cấp">
                             <strong>{{ app.total_quantity }}</strong><span>đã cấp</span>
@@ -1153,10 +1188,12 @@
                                 <strong>{{ item.username }}</strong>
                                 <span>{{ item.assigned_at.strftime('%d/%m/%Y %H:%M') if item.assigned_at else '—' }}</span>
                             </div>
-                            <span class="license-user-qty">×{{ item.quantity }}</span>
+                            <span class="license-user-qty" title="{{ item.quantity }} license được cấp">×{{ item.quantity }}</span>
                             <button class="btn btn-warning btn-sm license-revoke-btn"
                                     onclick='openRevokeModal({{ item.username|tojson }}, {{ app.software_key|tojson }}, {{ item.quantity }})'
-                                    title="Thu hồi license">↩</button>
+                                    title="Thu hồi license" aria-label="Thu hồi license">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 7H5.8l1.7-1.7-1.4-1.4L2 8l4.1 4.1 1.4-1.4L5.8 9H9a6 6 0 1 1-5.7 8h2.1A4 4 0 1 0 9 7Z"/></svg>
+                            </button>
                         </div>
                         {% endfor %}
                     </div>
@@ -1308,11 +1345,11 @@
 <!--                 <div class="page-subtitle" id="cmp-page-subtitle">Tài sản máy tính và máy đã join domain</div> --> <br>
             </div>
             <div class="page-actions">
-                <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
-                    📥 Import CSV
+                <label class="btn btn-secondary btn-sm btn-icon" title="Import danh sách máy CSV" aria-label="Import danh sách máy CSV" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.querySelector('input').click();}" style="cursor:pointer;">
+                    <svg class="transfer-icon" aria-hidden="true"><use href="#icon-import"/></svg>
                     <input type="file" id="importComputerFile" accept=".csv" style="display:none;" onchange="importComputerCSV(this)">
                 </label>
-                <a href="/export-computers-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">↓ Export CSV</a>
+                <a href="/export-computers-csv" class="btn btn-secondary btn-sm btn-icon" title="Export danh sách máy CSV" aria-label="Export danh sách máy CSV" style="text-decoration:none;"><svg class="transfer-icon" aria-hidden="true"><use href="#icon-export"/></svg></a>
                 <button class="btn btn-primary btn-sm" onclick="openAddComputerModal()">+ Thêm Máy</button>
             </div>
         </div>
@@ -1520,14 +1557,9 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
                 <div class="page-subtitle">Lịch sử toàn bộ thao tác của Admin — 200 bản ghi gần nhất</div>
             </div>
             <div class="page-actions">
-                <a href="/export-allocation-history.xlsx" class="btn btn-primary btn-sm" style="text-decoration:none;">
-                    ↓ Export Cấp Phát Excel
-                </a>
-                <button class="btn btn-secondary btn-sm" onclick="exportUserAllocationHistory()">Export Theo User</button>
-                <a href="/export-audit-csv" class="btn btn-secondary btn-sm" style="text-decoration:none;">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    Export CSV
-                </a>
+                <a href="/export-allocation-history.xlsx" class="btn btn-primary btn-sm btn-icon" title="Export toàn bộ lịch sử cấp phát Excel" aria-label="Export toàn bộ lịch sử cấp phát Excel" style="text-decoration:none;"><svg class="transfer-icon" aria-hidden="true"><use href="#icon-export"/></svg></a>
+                <button class="btn btn-secondary btn-sm btn-icon" title="Export lịch sử cấp phát theo user" aria-label="Export lịch sử cấp phát theo user" onclick="exportUserAllocationHistory()"><svg class="transfer-icon" aria-hidden="true"><use href="#icon-export"/></svg></button>
+                <a href="/export-audit-csv" class="btn btn-secondary btn-sm btn-icon" title="Export Audit Log CSV" aria-label="Export Audit Log CSV" style="text-decoration:none;"><svg class="transfer-icon" aria-hidden="true"><use href="#icon-export"/></svg></a>
                 <button class="btn btn-danger btn-sm" onclick="clearAuditLog()">
                     🗑 Clear Log
                 </button>
@@ -1828,6 +1860,8 @@ Lưu ý*: Trường hợp mất thẻ, liên hệ bộ phận IT để khóa th�
 </div>
 
 <style>
+/* Compact import/export actions; title supplies the hover tooltip. */
+.transfer-icon { width:16px; height:16px; display:block; flex-shrink:0; }
 /* ════════════════════════════════════════════════════════════════
    THANH CUỘN (SCROLLBAR) — làm đẹp & dễ thấy hơn mặc định trình
    duyệt. Áp dụng toàn app: bảng (table-container), danh sách dài,
@@ -1919,24 +1953,30 @@ html[data-theme="dark"] *::-webkit-scrollbar-thumb:active {
     background: var(--info-bg, #e7f1ff); color: var(--text-soft); font-size: 12px;
 }
 .license-app-grid {
-    display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
-    gap:12px; padding:0 16px 16px; max-height:520px; overflow-y:auto;
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));
+    align-items:start; gap:14px; padding:4px 16px 16px; max-height:520px; overflow-y:auto;
 }
 .license-app-card {
-    min-width:0; border:1px solid var(--border); border-radius:12px;
-    background:var(--card); box-shadow:0 2px 8px rgba(15,23,42,.05); overflow:hidden;
+    min-width:0; border:1px solid var(--border); border-radius:14px;
+    background:var(--card); box-shadow:0 3px 12px rgba(15,23,42,.06); overflow:hidden;
     transition:border-color .15s ease, box-shadow .15s ease, transform .15s ease;
 }
-.license-app-card:hover { border-color:var(--azure); box-shadow:0 7px 20px rgba(15,23,42,.09); transform:translateY(-1px); }
-.license-app-card-head { display:flex; align-items:center; gap:11px; padding:14px; border-bottom:1px solid var(--border); }
+.license-app-card:hover { border-color:var(--azure); box-shadow:0 8px 22px rgba(15,23,42,.1); transform:translateY(-2px); }
+.license-app-card-head {
+    display:flex; align-items:center; gap:12px; padding:16px;
+    background:var(--bg-secondary); border-bottom:1px solid var(--border);
+}
 .license-app-icon {
-    width:43px; height:43px; border-radius:11px; display:grid; place-items:center;
-    flex:0 0 43px; color:#fff; font-weight:800; font-size:20px;
+    width:44px; height:44px; border-radius:12px; display:grid; place-items:center;
+    flex:0 0 44px; color:#fff; font-weight:800; font-size:20px;
+    box-shadow:0 2px 7px rgba(15,23,42,.12);
 }
 .license-app-icon svg { width:23px; height:23px; fill:currentColor; }
 .license-app-icon .icon-cut { fill:var(--card); }
-.license-app-icon .brand-logo { width:27px; height:27px; }
-.icon-office, .icon-microsoft, .icon-creative-cloud, .icon-adobe, .icon-chrome, .icon-google { background:#fff; border:1px solid rgba(15,23,42,.10); }
+.license-app-icon .brand-logo { width:29px; height:29px; }
+.icon-office, .icon-microsoft, .icon-creative-cloud, .icon-adobe, .icon-chrome, .icon-google { background:#fff; border:1px solid rgba(15,23,42,.12); }
+.icon-vscode { background:#e8f5ff; border:1px solid rgba(0,122,204,.18); }
+.icon-visual-studio { background:#f1ebff; border:1px solid rgba(134,97,197,.2); }
 .icon-zoom { background:linear-gradient(135deg,#2d8cff,#0b5cff); }
 .icon-generic { background:linear-gradient(135deg,var(--azure),#7c3aed); }
 .assign-user-combobox { position:relative; }
@@ -1955,24 +1995,38 @@ html[data-theme="dark"] *::-webkit-scrollbar-thumb:active {
 .assign-user-option strong { min-width:120px; }
 .assign-user-option span { color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .license-app-title-wrap { min-width:0; flex:1; }
-.license-app-title { font-weight:750; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.license-app-title-wrap code { display:block; margin-top:3px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.license-app-total { text-align:right; flex:0 0 auto; }
-.license-app-total strong { display:block; color:var(--azure); font-size:18px; line-height:1; }
-.license-app-total span { display:block; margin-top:4px; color:var(--text-muted); font-size:10px; text-transform:uppercase; }
+.license-app-title { font-size:14px; line-height:1.35; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.license-app-title-wrap code {
+    display:inline-block; box-sizing:border-box; max-width:100%; margin-top:5px;
+    padding:2px 0; background:transparent; border:0; color:var(--text-muted);
+    font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:bottom;
+}
+.license-app-total {
+    flex:0 0 auto; min-width:58px; padding:7px 9px; text-align:center;
+    border-radius:10px; background:var(--azure-light,#e8f1fb); color:var(--azure);
+}
+.license-app-total strong { display:block; color:inherit; font-size:18px; line-height:1.1; }
+.license-app-total span { display:block; margin-top:3px; color:inherit; font-size:10px; font-weight:600; white-space:nowrap; }
 .license-app-users { max-height:215px; overflow-y:auto; }
-.license-user-row { display:flex; align-items:center; gap:9px; padding:10px 13px; border-bottom:1px solid var(--border); }
+.license-user-row { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border); }
 .license-user-row:last-child { border-bottom:0; }
-.license-user-avatar { width:29px; height:29px; border-radius:50%; display:grid; place-items:center; background:var(--azure-light,#e8f1fb); color:var(--azure); font-size:12px; font-weight:800; }
+.license-user-avatar { width:34px; height:34px; flex:0 0 34px; border-radius:50%; display:grid; place-items:center; background:var(--azure-light,#e8f1fb); color:var(--azure); font-size:12px; font-weight:800; }
 .license-user-info { min-width:0; flex:1; }
-.license-user-info strong { display:block; font-size:12px; overflow:hidden; text-overflow:ellipsis; }
-.license-user-info span { display:block; color:var(--text-muted); font-size:10px; margin-top:2px; }
-.license-user-qty { color:var(--azure); background:var(--azure-light,#e8f1fb); border-radius:999px; padding:3px 7px; font-size:11px; font-weight:750; }
-.license-revoke-btn { width:29px; min-width:29px; padding:4px; }
+.license-user-info strong { display:block; font-size:12px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.license-user-info span { display:block; color:var(--text-muted); font-size:11px; margin-top:3px; }
+.license-user-qty { flex:0 0 auto; color:var(--azure); background:var(--azure-light,#e8f1fb); border-radius:999px; padding:4px 8px; font-size:11px; font-weight:750; }
+.license-revoke-btn { width:32px; min-width:32px; height:32px; padding:0; display:grid; place-items:center; border-radius:8px; border:1px solid rgba(194,65,12,.22); background:#fff7ed; color:#c2410c; }
+.license-revoke-btn svg { width:15px; height:15px; fill:currentColor; }
+.license-revoke-btn:hover { background:#ffedd5; border-color:#c2410c; color:#9a3412; }
 .license-app-empty { grid-column:1/-1; padding:24px; text-align:center; color:var(--text-muted); }
 @media (max-width:700px) {
     .license-app-grid { grid-template-columns:1fr; padding:0 10px 12px; }
     .license-history-actions .search-box { width:100%; }
+}
+@media (max-width:390px) {
+    .license-app-card-head, .license-user-row { padding-left:12px; padding-right:12px; }
+    .license-app-card-head { gap:8px; }
+    .license-app-total { min-width:50px; padding:6px; }
 }
 /* Software License Inventory & License Assignment History: chỉ hiển thị 5 dòng dữ liệu,
    phần còn lại cuộn dọc bên trong khung bảng thay vì kéo dài toàn trang. Nếu font/padding
@@ -2580,6 +2634,60 @@ function importLicenseAssignments(input) {
                 ? '\n\n' + error.errors.slice(0, 10).join('\n') : '';
             showToast(error.message || 'Import Excel thất bại', 'danger');
             if (details) alert((error.message || 'Import Excel thất bại') + details);
+        });
+}
+
+let _inventoryImportInput = null;
+
+function importSoftwareInventory(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    _inventoryImportInput = input;
+    document.getElementById('importInventoryPassword').value = '';
+    document.getElementById('importInventoryModal').classList.add('show');
+    setTimeout(() => document.getElementById('importInventoryPassword').focus(), 100);
+}
+
+function cancelSoftwareInventoryImport() {
+    closeModal('importInventoryModal');
+    document.getElementById('importInventoryPassword').value = '';
+    if (_inventoryImportInput) _inventoryImportInput.value = '';
+    _inventoryImportInput = null;
+}
+
+function submitSoftwareInventoryImport() {
+    const input = _inventoryImportInput;
+    const file = input && input.files && input.files[0];
+    if (!file) { cancelSoftwareInventoryImport(); return; }
+    const adminPass = document.getElementById('importInventoryPassword').value;
+    if (!adminPass) {
+        showToast('Vui lòng nhập mật khẩu Administrator', 'warning');
+        return;
+    }
+    const form = new FormData();
+    form.append('file', file);
+    form.append('admin_pass', adminPass);
+    cancelSoftwareInventoryImport();
+    showLoading();
+    fetch('/api/import-software-inventory', { method:'POST', body:form })
+        .then(async response => {
+            const data = await response.json().catch(() => ({status:'error', message:'Phản hồi máy chủ không hợp lệ.'}));
+            if (!response.ok) throw data;
+            return data;
+        })
+        .then(data => {
+            hideLoading();
+            input.value = '';
+            showToast(`Đã import ${data.imported_count} ứng dụng (${data.created_count} thêm, ${data.updated_count} cập nhật)`, 'success');
+            setTimeout(() => window.location.reload(), 700);
+        })
+        .catch(error => {
+            hideLoading();
+            input.value = '';
+            const details = Array.isArray(error.errors) && error.errors.length
+                ? '\n\n' + error.errors.slice(0, 10).join('\n') : '';
+            showToast(error.message || 'Import kho license thất bại', 'danger');
+            if (details) alert((error.message || 'Import kho license thất bại') + details);
         });
 }
 

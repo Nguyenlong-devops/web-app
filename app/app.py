@@ -1824,6 +1824,139 @@ def export_licenses_csv():
 # ─────────────────────────────────────────────
 #  Export Audit Log CSV
 # ─────────────────────────────────────────────
+@app.route('/export-software-inventory-csv')
+@domain_required
+@admin_required
+def export_software_inventory_csv():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT software_key, software_name, total_licenses, used_licenses,
+               (total_licenses - used_licenses) AS remaining_licenses
+        FROM software_inventory ORDER BY id ASC
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['License Key', 'Software Name', 'Total Licenses', 'Used Licenses', 'Remaining Licenses'])
+    cw.writerows(rows)
+    write_log(session['user'], 'EXPORT_CSV', detail='Exported software inventory CSV')
+    output = make_response(si.getvalue().encode('utf-8-sig'))
+    output.headers['Content-Disposition'] = 'attachment; filename=software_inventory.csv'
+    output.headers['Content-type'] = 'text/csv; charset=utf-8'
+    return output
+
+@app.route('/api/import-software-inventory', methods=['POST'])
+@domain_required
+@admin_required
+def api_import_software_inventory():
+    import unicodedata
+    from openpyxl import load_workbook
+
+    cfg = current_domain_cfg()
+    if request.form.get('admin_pass', '') != cfg.get('ssh_pass', ''):
+        return jsonify({'status': 'error', 'message': 'Mật khẩu Administrator không đúng.'}), 403
+    upload = request.files.get('file')
+    if not upload or not upload.filename:
+        return jsonify({'status': 'error', 'message': 'Vui lòng chọn file CSV hoặc Excel.'}), 400
+    filename = upload.filename.lower()
+    if not filename.endswith(('.csv', '.xlsx', '.xlsm')):
+        return jsonify({'status': 'error', 'message': 'Chỉ hỗ trợ file .csv, .xlsx hoặc .xlsm.'}), 400
+    raw = upload.stream.read(5 * 1024 * 1024 + 1)
+    if len(raw) > 5 * 1024 * 1024:
+        return jsonify({'status': 'error', 'message': 'File vượt quá giới hạn 5 MB.'}), 400
+
+    def normalize_header(value):
+        text = unicodedata.normalize('NFD', str(value or '').strip().lower())
+        text = ''.join(ch for ch in text if unicodedata.category(ch) != 'Mn')
+        return ' '.join(text.replace('_', ' ').split())
+
+    try:
+        if filename.endswith('.csv'):
+            values = list(csv.reader(io.StringIO(raw.decode('utf-8-sig'))))
+            headers, data_rows = (values[0], values[1:]) if values else (None, [])
+        else:
+            workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            values = list(workbook.active.iter_rows(values_only=True))
+            headers, data_rows = (list(values[0]), [list(r) for r in values[1:]]) if values else (None, [])
+        if not headers:
+            return jsonify({'status': 'error', 'message': 'File không có dòng tiêu đề.'}), 400
+        aliases = {
+            'key': {'license key', 'software key', 'key', 'ma license', 'ma ban quyen'},
+            'name': {'software name', 'software', 'name', 'ten phan mem'},
+            'total': {'total licenses', 'total license', 'total', 'tong so license', 'tong'},
+        }
+        normalized = [normalize_header(h) for h in headers]
+        columns = {field: next((i for i, h in enumerate(normalized) if h in names), None)
+                   for field, names in aliases.items()}
+        if any(i is None for i in columns.values()):
+            return jsonify({'status': 'error', 'message': 'Thiếu cột bắt buộc: License Key, Software Name, Total Licenses.'}), 400
+
+        records, errors, seen = [], [], set()
+        for row_number, row in enumerate(data_rows, start=2):
+            if not any(str(value or '').strip() for value in row):
+                continue
+            def cell(field):
+                i = columns[field]
+                return row[i] if i < len(row) else ''
+            key, name = str(cell('key') or '').strip(), str(cell('name') or '').strip()
+            if not key or not name:
+                errors.append(f'Dòng {row_number}: License Key và Software Name không được để trống.')
+                continue
+            try:
+                value = cell('total')
+                numeric_total = float(value)
+                if not numeric_total.is_integer():
+                    raise ValueError
+                total = int(numeric_total)
+            except (TypeError, ValueError):
+                errors.append(f'Dòng {row_number}: Total Licenses phải là số nguyên.')
+                continue
+            if total < 0:
+                errors.append(f'Dòng {row_number}: Total Licenses không được âm.')
+                continue
+            if key.casefold() in seen:
+                errors.append(f'Dòng {row_number}: License Key bị trùng trong file ({key}).')
+                continue
+            seen.add(key.casefold())
+            records.append((key, name, total, row_number))
+        if errors:
+            return jsonify({'status': 'error', 'message': 'File có dữ liệu không hợp lệ.', 'errors': errors}), 400
+        if not records:
+            return jsonify({'status': 'error', 'message': 'File không có ứng dụng nào để import.'}), 400
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        created_count = updated_count = 0
+        try:
+            for key, name, total, row_number in records:
+                cur.execute("SELECT software_key, used_licenses FROM software_inventory WHERE LOWER(software_key)=LOWER(%s) FOR UPDATE", (key,))
+                existing = cur.fetchone()
+                if existing:
+                    if total < (existing[1] or 0):
+                        raise ValueError(f'Dòng {row_number}: Tổng license nhỏ hơn số đã cấp cho {key}.')
+                    cur.execute("UPDATE software_inventory SET software_name=%s, total_licenses=%s WHERE software_key=%s", (name, total, existing[0]))
+                    updated_count += 1
+                else:
+                    cur.execute("INSERT INTO software_inventory (software_key, software_name, total_licenses, used_licenses) VALUES (%s,%s,%s,0)", (key, name, total))
+                    created_count += 1
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+        write_log(session['user'], 'IMPORT_LICENSE_INVENTORY', detail=f'Imported {len(records)} software inventory rows')
+        return jsonify({'status': 'success', 'imported_count': len(records), 'created_count': created_count, 'updated_count': updated_count})
+    except ValueError as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 400
+    except Exception as exc:
+        print(f'Import software inventory error: {exc}')
+        return jsonify({'status': 'error', 'message': 'Không thể import file kho license.'}), 500
+
 @app.route('/api/import-license-assignments', methods=['POST'])
 @domain_required
 @admin_required
