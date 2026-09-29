@@ -1116,11 +1116,16 @@
             <div id="assignmentAppGrid" class="license-app-grid scroll-area">
                 {% for app in assignment_apps %}
                 {% set app_identity = (app.software_name ~ ' ' ~ app.software_key)|lower %}
+                {% set is_office_app = ('office' in app_identity or 'office20' in app_identity or 'office-20' in app_identity or 'microsoft 365' in app_identity or 'ms 365' in app_identity or 'o365' in app_identity) %}
                 <article class="license-app-card" data-search="{{ app.software_name }} {{ app.software_key }} {% for item in app.assignments %}{{ item.username }} {% endfor %}">
                     <div class="license-app-card-head">
-                        <div class="license-app-icon {% if 'office' in app_identity or '365' in app_identity %}icon-office{% elif 'windows' in app_identity or 'microsoft' in app_identity %}icon-microsoft{% elif 'creative cloud' in app_identity %}icon-creative-cloud{% elif 'adobe' in app_identity or 'acrobat' in app_identity %}icon-adobe{% elif 'zoom' in app_identity %}icon-zoom{% elif 'chrome' in app_identity %}icon-chrome{% elif 'google' in app_identity %}icon-google{% else %}icon-generic{% endif %}" title="{{ app.software_name }}">
-                            {% if 'office' in app_identity or '365' in app_identity %}
-                            <svg class="brand-logo" viewBox="0 0 32 32" aria-label="Microsoft 365"><path fill="#ea3e23" d="M12.7 3.2 25 7.5v17L12.7 28.8 5 23.4V8.6l7.7-5.4Zm1.5 6.1-5 1.8v9.8l5 1.8 6.6-2.4v-8.6l-6.6-2.4Zm0 3.4 3.7 1.3v4l-3.7 1.3-2.1-.8v-5l2.1-.8Z"/></svg>
+                        <div class="license-app-icon {% if is_office_app %}icon-office{% elif 'visual studio code' in app_identity or 'vscode' in app_identity %}icon-vscode{% elif 'visual studio' in app_identity %}icon-visual-studio{% elif 'windows' in app_identity or 'microsoft' in app_identity %}icon-microsoft{% elif 'creative cloud' in app_identity %}icon-creative-cloud{% elif 'adobe' in app_identity or 'acrobat' in app_identity %}icon-adobe{% elif 'zoom' in app_identity %}icon-zoom{% elif 'chrome' in app_identity %}icon-chrome{% elif 'google' in app_identity %}icon-google{% else %}icon-generic{% endif %}" title="{{ app.software_name }}">
+                            {% if is_office_app %}
+                            <svg class="brand-logo office-2019-logo" viewBox="0 0 32 32" aria-label="Microsoft Office 2019"><path fill="#c43b2b" d="M5 5.8 17.5 2 27 6.6v18.8L17.5 30 5 26.2v-6.1l9.4 2.9 4.1-1.7V10.7l-4.1-1.7L5 11.9V5.8Z"/><path fill="#f26b38" d="M5 5.8 14.4 9v14l-9.4-2.9V5.8Z"/><path fill="#fff" d="M14.4 9 18.5 10.7v10.6l-4.1 1.7V9Z"/><path fill="#e95732" d="M18.5 10.7 22 12.1v7.8l-3.5 1.4V10.7Z"/></svg>
+                            {% elif 'visual studio code' in app_identity or 'vscode' in app_identity %}
+                            <svg class="brand-logo" viewBox="0 0 32 32" aria-label="Visual Studio Code"><path fill="#007acc" d="M24.7 3.2 13.1 13.8 7.7 9.2 4 11.3l7.1 6.8L4 24.9l3.7 2.1 5.4-4.6 11.6 10.4 3.3-1.7V4.9l-3.3-1.7Z"/><path fill="#fff" d="m13.1 18.1 11.6-8.8v13.4l-11.6-8.8v4.2Z"/></svg>
+                            {% elif 'visual studio' in app_identity %}
+                            <svg class="brand-logo" viewBox="0 0 32 32" aria-label="Visual Studio"><path fill="#8661c5" d="m6.5 11.2 4.1-3.1 6.1 6.1L24.1 4 28 6.1v19.8L24.1 28l-7.4-10.2-6.1 6.1-4.1-3.1 6-5.1-6-4.5Zm17.6 1.4-4.7 3.4 4.7 3.4v-6.8Z"/></svg>
                             {% elif 'windows' in app_identity or 'microsoft' in app_identity %}
                             <svg class="brand-logo" viewBox="0 0 24 24" aria-label="Microsoft"><path fill="#f25022" d="M2 2h9v9H2z"/><path fill="#7fba00" d="M13 2h9v9h-9z"/><path fill="#00a4ef" d="M2 13h9v9H2z"/><path fill="#ffb900" d="M13 13h9v9h-9z"/></svg>
                             {% elif 'creative cloud' in app_identity %}
@@ -1156,7 +1161,11 @@
                             <span class="license-user-qty">×{{ item.quantity }}</span>
                             <button class="btn btn-warning btn-sm license-revoke-btn"
                                     onclick='openRevokeModal({{ item.username|tojson }}, {{ app.software_key|tojson }}, {{ item.quantity }})'
-                                    title="Thu hồi license">↩</button>
+                                    title="Thu hồi license" aria-label="Thu hồi license">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M9 7H5.8l1.7-1.7-1.4-1.4L2 8l4.1 4.1 1.4-1.4L5.8 9H9a6 6 0 1 1-5.7 8h2.1A4 4 0 1 0 9 7Z"/>
+                                </svg>
+                            </button>
                         </div>
                         {% endfor %}
                     </div>
@@ -1919,24 +1928,28 @@ html[data-theme="dark"] *::-webkit-scrollbar-thumb:active {
     background: var(--info-bg, #e7f1ff); color: var(--text-soft); font-size: 12px;
 }
 .license-app-grid {
-    display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
-    gap:12px; padding:0 16px 16px; max-height:520px; overflow-y:auto;
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr));
+    align-items:start; grid-auto-rows:max-content; gap:14px; padding:2px 16px 18px;
+    max-height:520px; overflow-y:auto; background:linear-gradient(180deg,rgba(248,250,252,.7),transparent 80px);
 }
 .license-app-card {
-    min-width:0; border:1px solid var(--border); border-radius:12px;
-    background:var(--card); box-shadow:0 2px 8px rgba(15,23,42,.05); overflow:hidden;
+    min-width:0; align-self:start; border:1px solid var(--border); border-radius:14px;
+    background:var(--card); box-shadow:0 3px 10px rgba(15,23,42,.055); overflow:hidden;
     transition:border-color .15s ease, box-shadow .15s ease, transform .15s ease;
 }
-.license-app-card:hover { border-color:var(--azure); box-shadow:0 7px 20px rgba(15,23,42,.09); transform:translateY(-1px); }
-.license-app-card-head { display:flex; align-items:center; gap:11px; padding:14px; border-bottom:1px solid var(--border); }
+.license-app-card:hover { border-color:color-mix(in srgb, var(--azure) 55%, var(--border)); box-shadow:0 10px 24px rgba(15,23,42,.11); transform:translateY(-2px); }
+.license-app-card-head { display:flex; align-items:center; gap:12px; min-height:72px; padding:13px 14px 12px; border-bottom:1px solid var(--border); background:linear-gradient(135deg,rgba(248,250,252,.86),var(--card) 62%); }
 .license-app-icon {
-    width:43px; height:43px; border-radius:11px; display:grid; place-items:center;
-    flex:0 0 43px; color:#fff; font-weight:800; font-size:20px;
+    width:44px; height:44px; border-radius:12px; display:grid; place-items:center;
+    flex:0 0 44px; color:#fff; font-weight:800; font-size:19px;
+    box-shadow:inset 0 0 0 1px rgba(15,23,42,.08), 0 2px 5px rgba(15,23,42,.08);
 }
-.license-app-icon svg { width:23px; height:23px; fill:currentColor; }
+.license-app-icon svg { width:25px; height:25px; fill:currentColor; }
 .license-app-icon .icon-cut { fill:var(--card); }
-.license-app-icon .brand-logo { width:27px; height:27px; }
-.icon-office, .icon-microsoft, .icon-creative-cloud, .icon-adobe, .icon-chrome, .icon-google { background:#fff; border:1px solid rgba(15,23,42,.10); }
+.license-app-icon .brand-logo { width:29px; height:29px; }
+.icon-office, .icon-microsoft, .icon-creative-cloud, .icon-adobe, .icon-chrome, .icon-google { background:#fff; border:1px solid rgba(15,23,42,.12); }
+.icon-vscode { background:#e8f5ff; border:1px solid rgba(0,122,204,.18); }
+.icon-visual-studio { background:#f1ebff; border:1px solid rgba(134,97,197,.2); }
 .icon-zoom { background:linear-gradient(135deg,#2d8cff,#0b5cff); }
 .icon-generic { background:linear-gradient(135deg,var(--azure),#7c3aed); }
 .assign-user-combobox { position:relative; }
@@ -1958,17 +1971,24 @@ html[data-theme="dark"] *::-webkit-scrollbar-thumb:active {
 .license-app-title { font-weight:750; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .license-app-title-wrap code { display:block; margin-top:3px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .license-app-total { text-align:right; flex:0 0 auto; }
-.license-app-total strong { display:block; color:var(--azure); font-size:18px; line-height:1; }
-.license-app-total span { display:block; margin-top:4px; color:var(--text-muted); font-size:10px; text-transform:uppercase; }
-.license-app-users { max-height:215px; overflow-y:auto; }
-.license-user-row { display:flex; align-items:center; gap:9px; padding:10px 13px; border-bottom:1px solid var(--border); }
+.license-app-total { padding-left:8px; }
+.license-app-total strong { display:block; color:var(--azure); font-size:20px; line-height:1; letter-spacing:-.03em; }
+.license-app-total span { display:block; margin-top:5px; color:var(--text-muted); font-size:9px; font-weight:750; text-transform:uppercase; letter-spacing:.04em; }
+.license-app-users { max-height:215px; overflow-y:auto; background:rgba(248,250,252,.38); }
+.license-user-row { display:flex; align-items:center; gap:10px; min-height:52px; padding:9px 13px; border-bottom:1px solid var(--border); }
 .license-user-row:last-child { border-bottom:0; }
-.license-user-avatar { width:29px; height:29px; border-radius:50%; display:grid; place-items:center; background:var(--azure-light,#e8f1fb); color:var(--azure); font-size:12px; font-weight:800; }
+.license-user-avatar { width:30px; height:30px; border-radius:10px; display:grid; place-items:center; background:var(--azure-light,#e8f1fb); color:var(--azure); font-size:12px; font-weight:800; }
 .license-user-info { min-width:0; flex:1; }
-.license-user-info strong { display:block; font-size:12px; overflow:hidden; text-overflow:ellipsis; }
+.license-user-info strong { display:block; font-size:12px; line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .license-user-info span { display:block; color:var(--text-muted); font-size:10px; margin-top:2px; }
 .license-user-qty { color:var(--azure); background:var(--azure-light,#e8f1fb); border-radius:999px; padding:3px 7px; font-size:11px; font-weight:750; }
-.license-revoke-btn { width:29px; min-width:29px; padding:4px; }
+.license-revoke-btn {
+    width:31px; min-width:31px; height:31px; padding:0; display:grid; place-items:center;
+    border-radius:50%; border:1px solid rgba(194,65,12,.22); background:#fff7ed;
+    color:#c2410c; box-shadow:none; transition:background .15s ease, color .15s ease, transform .15s ease;
+}
+.license-revoke-btn:hover { background:#c2410c; color:#fff; border-color:#c2410c; transform:rotate(-12deg); }
+.license-revoke-btn svg { width:15px; height:15px; fill:currentColor; }
 .license-app-empty { grid-column:1/-1; padding:24px; text-align:center; color:var(--text-muted); }
 @media (max-width:700px) {
     .license-app-grid { grid-template-columns:1fr; padding:0 10px 12px; }
