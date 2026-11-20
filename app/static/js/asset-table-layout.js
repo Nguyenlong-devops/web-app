@@ -3,6 +3,8 @@
     let queued = false;
     function fit() {
         queued = false;
+        // Avoid repeatedly reflowing every table cell while the menu is sliding.
+        if (document.documentElement.classList.contains('sidebar-animating')) return;
         const viewport = document.getElementById('assetTableViewport');
         if (!viewport || !viewport.getClientRects().length) return;
         const screenHeight = window.visualViewport?.height || window.innerHeight;
@@ -13,17 +15,18 @@
         if (table) {
             // Keep status, username and actions readable; share the remaining width by weight.
             const width = Math.max(1280, viewport.clientWidth);
-            table.style.width = width + 'px';
+            if (table.style.width !== width + 'px') table.style.width = width + 'px';
             const columns = Array.from(table.querySelectorAll('col[data-weight]'));
             const fixedColumns = Array.from(table.querySelectorAll('col[data-fixed-width]'));
             const fixedWidth = fixedColumns.reduce((sum, col) => {
                 const pixels = Number(col.dataset.fixedWidth);
-                col.style.width = pixels + 'px';
+                if (col.style.width !== pixels + 'px') col.style.width = pixels + 'px';
                 return sum + pixels;
             }, 0) || 156;
             const total = columns.reduce((sum, col) => sum + Number(col.dataset.weight), 0);
             if (total) columns.forEach(col => {
-                col.style.width = ((width - fixedWidth) * Number(col.dataset.weight) / total) + 'px';
+                const size = ((width - fixedWidth) * Number(col.dataset.weight) / total) + 'px';
+                if (col.style.width !== size) col.style.width = size;
             });
         }
     }
@@ -35,6 +38,7 @@
         const assets = document.getElementById('tab_panel_assets');
         if (!section || !assets) return;
         window.addEventListener('resize', schedule);
+        window.addEventListener('sidebar:layout-settled', schedule);
         window.visualViewport?.addEventListener('resize', schedule);
         if (window.ResizeObserver) {
             const observer = new ResizeObserver(schedule);

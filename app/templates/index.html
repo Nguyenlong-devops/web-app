@@ -11,6 +11,9 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/warranty.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/asset-table.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/asset-qr-dialog.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sidebar.css') }}">
+<script>try { if (localStorage.getItem('pv_sidebar_collapsed') === '1') document.documentElement.classList.add('sidebar-collapsed'); } catch (_) {}</script>
+<script defer src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
 <script defer src="{{ url_for('static', filename='js/asset-qr-dialog.js') }}"></script>
 <script defer src="{{ url_for('static', filename='js/asset-table-layout.js') }}"></script>
 <script src="{{ url_for('static', filename='js/dates.js') }}"></script>
@@ -40,6 +43,7 @@
 </svg>
 
 <div class="app-layout">
+<button type="button" id="sidebarBackdrop" aria-label="Đóng menu" hidden></button>
 
 <!-- ══════════════════ SIDEBAR ══════════════════ -->
 <aside class="sidebar" id="sidebar">
@@ -74,27 +78,27 @@
         <div class="nav-section-label">Main</div>
         <button class="nav-item active" onclick="showSection('section-dashboard', this)">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span>
-            Dashboard
+            <span class="nav-label">Dashboard</span>
         </button>
 
         {% if session.get('is_admin') %}
         <div class="nav-section-label">Administration</div>
         <button class="nav-item" onclick="showSection('section-groups', this)">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
-            Quản Lý Group
+            <span class="nav-label">Quản Lý Group</span>
         </button>
         <button class="nav-item" onclick="showSection('section-computers', this)">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>
-            Quản Lý Computer
+            <span class="nav-label">Quản Lý Computer</span>
         </button>
-        <a class="nav-item" href="/inventory">✓ Kiểm Kê Tài Sản</a>
+        <a class="nav-item" href="/inventory"><span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="18" rx="2"/><path d="M9 4V2h6v2m-6 9 2 2 4-5"/></svg></span><span class="nav-label">Kiểm Kê Tài Sản</span></a>
         <button class="nav-item" onclick="showSection('section-handover', this)">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg></span>
-            Bàn Giao Thiết Bị
+            <span class="nav-label">Bàn Giao Thiết Bị</span>
         </button>
         <button class="nav-item" onclick="showSection('section-audit', this)">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
-            Audit Log
+            <span class="nav-label">Audit Log</span>
         </button>
         {% endif %}
 
@@ -102,7 +106,7 @@
         {% if session.get('is_admin') %}
         <a href="/change-password" class="nav-item">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
-            Đổi Mật Khẩu
+            <span class="nav-label">Đổi Mật Khẩu</span>
         </a>
         {% endif %}
 
@@ -110,7 +114,7 @@
 
         <a href="/logout" class="nav-item nav-danger">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
-            Đăng Xuất
+            <span class="nav-label">Đăng Xuất</span>
         </a>
     </nav>
 
@@ -631,6 +635,7 @@
     <!-- TOPBAR -->
     <div class="topbar">
         <div class="topbar-left">
+            <button type="button" id="sidebarToggle" class="sidebar-toggle" aria-controls="sidebar" aria-expanded="true" aria-label="Thu gọn menu" title="Thu gọn menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m7-12-3 4 3 4"/></svg></button>
             <div class="breadcrumb">
                 <span>PV Portal</span>
                 <span class="crumb-sep">›</span>

@@ -1,0 +1,34 @@
+.topbar-left{display:flex;align-items:center;gap:12px;min-width:0}
+.sidebar-toggle{display:grid;place-items:center;width:34px;height:34px;flex:none;border:1px solid var(--border,#dbe2ec);border-radius:8px;background:var(--card,#fff);color:var(--text-soft,#53657c);cursor:pointer}
+.sidebar-toggle:hover{background:var(--bg-secondary,#eef0f4);color:var(--text,#172b4d)}
+.sidebar-toggle svg{width:19px;height:19px}
+.sidebar-toggle:focus-visible{outline:2px solid var(--azure-blue,#0078d4);outline-offset:3px}
+.sidebar-nav .nav-icon-wrap{display:inline-flex;align-items:center;justify-content:center;flex:none}
+.sidebar .brand-switch-btn,.sidebar .brand-exit-btn{display:flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px;padding:0;border:1px solid rgba(255,255,255,.14);border-radius:8px;background:transparent;color:var(--text-on-dark-soft,#a8b2c2)}
+.sidebar .brand-switch-btn svg,.sidebar .brand-exit-btn svg{width:15px;height:15px}
+:root{--sidebar-expanded-w:260px;--sidebar-motion:160ms;--sidebar-curve:cubic-bezier(.2,.8,.2,1)}
+.main-content{transition:margin-left var(--sidebar-motion) var(--sidebar-curve)}
+.sidebar-toggle svg{transition:transform var(--sidebar-motion) var(--sidebar-curve)}
+#sidebarBackdrop{position:fixed;inset:0;z-index:190;border:0;padding:0;background:#10233f80;cursor:pointer}
+#sidebarBackdrop[hidden]{display:none}
+@media(min-width:769px){
+    .sidebar{transition:width var(--sidebar-motion) var(--sidebar-curve)}
+    .sidebar-brand,.sidebar-nav,.sidebar-footer{width:var(--sidebar-expanded-w);flex-shrink:0}
+    .sidebar-user{width:calc(var(--sidebar-expanded-w) - 24px);height:60px;flex-shrink:0}
+    .sidebar-nav .nav-item{min-height:44px;margin-bottom:4px;gap:10px;transition:width var(--sidebar-motion) var(--sidebar-curve),background var(--ease),color var(--ease)}
+    .sidebar-nav .nav-icon-wrap{width:24px}
+    .sidebar-nav .nav-label{position:absolute;left:46px;white-space:nowrap;opacity:1;transition:opacity 100ms ease}
+    .sidebar .brand-text,.sidebar .user-info-text,.sidebar .nav-section-label,.sidebar .domain-status-text,.sidebar .brand-switch-btn,.sidebar .brand-exit-btn{transition:opacity 100ms ease}
+    html.sidebar-collapsed{--sidebar-w:72px}
+    .sidebar-collapsed .sidebar .brand-text,.sidebar-collapsed .sidebar .user-info-text,.sidebar-collapsed .sidebar .nav-label,.sidebar-collapsed .sidebar .nav-section-label,.sidebar-collapsed .sidebar .domain-status-text,.sidebar-collapsed .sidebar .brand-switch-btn,.sidebar-collapsed .sidebar .brand-exit-btn{opacity:0;pointer-events:none;visibility:hidden}
+    .sidebar-collapsed .sidebar .nav-label{visibility:visible}
+    .sidebar-collapsed .sidebar-user{border-color:transparent;background:transparent}
+    .sidebar-collapsed .sidebar-nav .nav-item{width:52px;justify-content:flex-start;padding:10px 12px}
+    .sidebar-collapsed .sidebar-nav .nav-icon{opacity:1}
+    .sidebar-collapsed .sidebar-toggle svg{transform:rotate(180deg)}
+}
+@media(min-width:769px) and (max-width:1024px){:root{--sidebar-expanded-w:220px}}
+@media(max-width:768px){.sidebar{transition:transform var(--sidebar-motion) var(--sidebar-curve)}}
+@media(max-width:768px){body.sidebar-mobile-open{overflow:hidden}.sidebar .nav-label{display:inline}.sidebar .nav-section-label{display:block}.topbar-greeting{display:none}.topbar-left{flex:1;overflow:hidden}.topbar-left .breadcrumb{min-width:0;overflow:hidden;white-space:nowrap}.topbar-left .crumb-current{overflow:hidden;text-overflow:ellipsis}.topbar-right{flex:none}}
+@media(prefers-reduced-motion:reduce){.sidebar,.main-content,.sidebar-toggle svg,.sidebar .nav-item,.sidebar .nav-label,.sidebar .brand-text,.sidebar .user-info-text,.sidebar .nav-section-label,.sidebar .domain-status-text,.sidebar .brand-switch-btn,.sidebar .brand-exit-btn{transition:none}}
+@media print{#sidebarToggle,#sidebarBackdrop{display:none!important}}
