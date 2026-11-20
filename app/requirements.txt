@@ -5,3 +5,4 @@ openpyxl
 ldap3
 requests
 cryptography
+qrcode>=7.4,<9

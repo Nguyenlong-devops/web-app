@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="{{ session.get('csrf_token','') }}">
+  <title>Kiểm kê tài sản — Infrastructure Portal</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}">
+  <script id="inventory-config" type="application/json">{{ {'fields':fields,'outcomes':outcomes} | tojson }}</script>
+  <script defer src="{{ url_for('static', filename='vendor/jsQR.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/dates.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/inventory.js') }}"></script>
+</head>
+<body>
+<header><a href="/">← Portal</a><strong>Kiểm kê tài sản</strong><span>{{ session.get('display_name',session.get('user')) }}</span></header>
+<main>
+  <div id="message" role="status" aria-live="polite" hidden></div>
+  <section class="card">
+    <div class="heading"><div><p class="eyebrow">QUẢN LÝ TÀI SẢN</p><h1>Đợt kiểm kê</h1></div><button id="show-create">+ Tạo đợt</button></div>
+    <p class="muted">Mỗi đợt lưu riêng danh sách thiết bị, kết quả và toàn bộ lịch sử thay đổi.</p>
+    <form id="create-form" hidden>
+      <label>Tên đợt<input name="name" required maxlength="200" placeholder="Ví dụ: Kiểm kê tháng 11/2026"></label>
+      <label>Vị trí<input name="location" placeholder="Để trống: tất cả thiết bị; hoặc nhập đúng vị trí"></label>
+      <label>Ghi chú<textarea name="notes" rows="2"></textarea></label>
+      <button type="submit">Tạo và chốt danh sách</button>
+      <button type="button" class="secondary" id="cancel-create">Hủy</button>
+    </form>
+    <label>Chọn đợt<select id="round-select"><option value="">Đang tải…</option></select></label>
+    <div id="round-info" class="muted"></div>
+  </section>
+  <div id="workspace" hidden>
+    <section class="stats" aria-label="Tiến độ kiểm kê">
+      <div><span>Tổng thiết bị</span><strong id="total">0</strong></div>
+      <div class="green"><span>Đã kiểm kê</span><strong id="checked">0</strong></div>
+      <div><span>Còn lại</span><strong id="remaining">0</strong></div>
+    </section>
+    <progress id="progress" value="0" max="100" aria-label="Tiến độ"></progress>
+    <section class="card">
+      <div class="heading"><h2>Danh sách thiết bị</h2><a id="export" class="button secondary">Xuất Excel</a></div>
+      <div class="toolbar">
+        <label class="grow">Tên máy / mã tài sản<input id="search" type="search" placeholder="Nhập tên hoặc quét QR…" autocomplete="off"></label>
+        <button id="scan">Quét QR</button>
+        <label>Trạng thái<select id="filter"><option value="all">Tất cả</option><option value="pending">Chưa kiểm kê</option><option value="done">Đã kiểm kê</option><option value="changed">Có thay đổi</option></select></label>
+      </div>
+      <p id="result-count" class="muted"></p>
+      <div id="device-list" class="device-list"></div>
+      <p id="empty" class="muted" hidden>Không tìm thấy thiết bị trong đợt này. Thử tên máy hoặc mã tài sản khác.</p>
+    </section>
+    <section class="card">
+      <div class="heading"><h2>Lịch sử đợt</h2><button id="load-history" class="secondary">Tải lịch sử</button></div>
+      <div id="history"></div>
+    </section>
+    <section class="card"><h2>Trạng thái đợt</h2><p class="muted">Đợt đã đóng vẫn xem và xuất được lịch sử. Mọi lần đóng/mở lại đều cần lý do.</p><button id="toggle-round" class="secondary">Đóng đợt</button></section>
+  </div>
+</main>
+<dialog id="editor">
+  <div class="heading"><h2 id="editor-title">Thông tin thiết bị</h2><button class="secondary" id="close-editor" aria-label="Đóng">✕</button></div>
+  <p id="completion-info" class="muted"></p>
+  <p class="muted">Lưu sẽ cập nhật danh mục thiết bị và ghi lịch sử trong đợt này. Bản đầu đợt được giữ nguyên.</p>
+  <form id="device-form">
+    <div id="device-fields"></div>
+    <label>Kết quả thực tế<select name="outcome">{% for key,label in outcomes.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label>
+    <label>Ghi chú kiểm kê / lý do chỉnh sửa<textarea name="note" rows="3"></textarea></label>
+    <details><summary>Thông tin lúc bắt đầu đợt</summary><dl id="baseline"></dl></details>
+    <div id="diff" class="muted"></div>
+    <p id="editor-error" class="error" role="alert"></p>
+    <div class="actions">
+      <button type="button" id="save-draft" class="secondary">Lưu thay đổi</button>
+      <button type="submit" id="complete">Lưu & hoàn thành</button>
+      <button type="button" id="reopen" class="secondary" hidden>Mở lại kiểm kê</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="scanner"><div class="heading"><h2>Quét QR thiết bị</h2><button id="stop-scan" class="secondary">Đóng</button></div><p>Đưa mã QR chứa tên máy hoặc mã tài sản vào khung hình.</p><video id="video" autoplay muted playsinline></video><canvas id="scan-canvas" hidden></canvas><p id="scan-error" role="alert"></p></dialog>
+</body></html>

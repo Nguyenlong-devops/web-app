@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QR — {{ computer.computer_name }}</title>
+<link rel="stylesheet" href="{{ url_for('static',filename='css/inventory.css') }}">
+{% if embedded %}<link rel="stylesheet" href="{{ url_for('static',filename='css/asset-qr-dialog.css') }}">{% endif %}
+<style>.label{max-width:440px;margin:30px auto;text-align:center;break-inside:avoid}.label img{width:280px;max-width:100%;height:auto}.link{overflow-wrap:anywhere;font-size:12px}@media print{body{background:white}.no-print{display:none!important}.label{box-shadow:none;margin:0 auto;border:1px solid #ccc}main{margin:0;padding:0}}</style></head>
+<body{% if embedded %} class="qr-embedded"{% endif %}><main data-qr-page><div class="no-print">{% if not embedded %}<a href="/">← Portal</a><p>Quét bằng camera điện thoại để mở thông tin thiết bị. Điện thoại cần truy cập được địa chỉ bên dưới và đăng nhập portal.</p>{% endif %}<p class="error" id="local-warning" hidden>Địa chỉ localhost chỉ hoạt động trên máy hiện tại. Hãy mở portal bằng IP/tên miền nội bộ hoặc cấu hình ASSET_PUBLIC_BASE_URL trước khi in tem.</p></div>
+<section class="card label"><h1>{{ computer.computer_name }}</h1><p>{{ computer.asset_code or 'Chưa có mã tài sản' }}</p><img src="{{ url_for('asset_qr.svg',cid=computer.id) }}" alt="Mã QR thiết bị"><p class="link">{{ link }}</p></section>
+<div class="actions no-print"><a class="button" href="{{ url_for('asset_qr.svg',cid=computer.id,download=1) }}">Tải QR (SVG)</a><button class="secondary" onclick="window.print()">In tem QR</button><a class="button secondary" href="{{ url_for('asset_qr.detail',cid=computer.id) }}"{% if embedded %} target="_blank" rel="noopener"{% endif %}>Xem thông tin{% if embedded %} ↗{% endif %}</a></div>
+</main><script>if(['localhost','127.0.0.1','[::1]'].includes(new URL({{ link|tojson }}).hostname))document.getElementById('local-warning').hidden=false;
+{% if embedded %}document.addEventListener('keydown',event=>{if(event.key==='Escape'&&window.parent!==window&&typeof parent.closeAssetQrModal==='function'){event.preventDefault();parent.closeAssetQrModal();}});{% endif %}
+</script></body></html>

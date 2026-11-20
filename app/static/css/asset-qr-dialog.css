@@ -1,0 +1,24 @@
+#assetQrDialog{width:min(560px,calc(100% - 24px));height:min(740px,calc(100dvh - 32px));max-height:calc(100dvh - 32px);padding:0;border:1px solid var(--border,#d7e0ee);border-radius:16px;background:var(--card,#fff);color:var(--text,#172b4d);box-shadow:0 24px 90px #12243d40;overflow:hidden}
+#assetQrDialog[open]{display:flex;flex-direction:column}
+#assetQrDialog::backdrop{background:#172b4d80}
+.asset-qr-dialog-header{display:flex;justify-content:space-between;align-items:center;gap:16px;flex:none;padding:17px 20px;border-bottom:1px solid var(--border,#d7e0ee)}
+.asset-qr-dialog-header h2{font-size:17px;margin:0;font-weight:650}
+.asset-qr-dialog-close{display:grid;place-items:center;width:34px;height:34px;flex:none;padding:8px;border:1px solid var(--border,#d7e0ee);border-radius:8px;background:var(--card,#fff);color:var(--text-soft,#53657c);cursor:pointer}
+.asset-qr-dialog-close svg{width:18px;height:18px}
+#assetQrFrame{display:block;flex:1;min-height:0;width:100%;border:0;background:white}
+.asset-qr-dialog-message{margin:20px;color:var(--text-soft,#53657c);font-size:13px;line-height:1.6}
+.asset-qr-dialog-message.error{color:var(--danger,#b42318)}
+#assetQrDialog [hidden]{display:none!important}
+body:has(#assetQrDialog[open]){overflow:hidden}
+.qr-embedded{background:#fff;min-height:100vh}
+.qr-embedded main{max-width:none;margin:0;padding:16px}
+.qr-embedded .label{margin:0 auto 16px;padding:16px;border:1px solid #dde5ef;box-shadow:none}
+.qr-embedded .label h1{font-size:22px;overflow-wrap:anywhere}
+.qr-embedded .label img{width:240px;max-width:100%;height:auto}
+.qr-embedded .actions{position:static;justify-content:center;flex-wrap:wrap;margin:0;padding:12px 0;gap:8px}
+.qr-embedded .actions button,.qr-embedded .actions .button{padding:10px 12px;font-size:13px}
+.qr-embedded .actions > *{flex:0 1 auto}
+#assetQrDialog{margin:auto}
+.qr-embedded .error{font-size:12px;line-height:1.5}
+@media print{.qr-embedded main{margin:0;padding:0}.qr-embedded .label{margin:0 auto}.qr-embedded .label img{width:280px}}
+@media(max-width:600px){#assetQrDialog{height:calc(100dvh - 24px);max-height:calc(100dvh - 24px)}.asset-qr-dialog-header{padding:14px 16px}}

@@ -1,0 +1,14 @@
+const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('assert');
+const source=fs.readFileSync(path.join(__dirname,'../app/templates/index.html'),'utf8');
+const start=source.indexOf('function _hoPopulateUserSelect('),end=source.indexOf('\nfunction ',start+1);
+const option=(text,value,enabled)=>({textContent:text,value,dataset:{enabled}});
+let selected='',reloaded=0;
+const target={options:[],set innerHTML(value){this.options=[option('Chọn nhân viên','')];selected='';},appendChild(opt){this.options.push(opt);},get value(){return selected;},set value(value){selected=this.options.some(o=>o.value===value)?value:'';}};
+const elements={gm_add_user_select:{options:[option('Chọn',''),option('Alice','alice','true'),option('Bob','bob','false'),option('Unknown','unknown')]},ho_user:target,ho_include_return:{checked:false}};
+const context={document:{getElementById:id=>elements[id]},Option:function(text,value){return option(text,value);},initListPicker:()=>{},resetListPicker:()=>{},loadHandoverInfo:()=>{reloaded++;}};
+vm.createContext(context);vm.runInContext('let _hoUserSelectFilled=false;\n'+source.slice(start,end),context);
+context._hoPopulateUserSelect();assert.deepEqual(target.options.map(o=>o.value),['','alice']);
+elements.ho_include_return.checked=true;context._hoPopulateUserSelect(true);assert.deepEqual(target.options.map(o=>o.value),['','alice','bob','unknown']);
+target.value='bob';elements.ho_include_return.checked=false;context._hoPopulateUserSelect(true);assert.equal(target.value,'');assert.equal(reloaded,1);
+target.value='alice';context._hoPopulateUserSelect(true);assert.equal(target.value,'alice');assert.equal(reloaded,1);
+console.log('PASS: Enabled-only handover recipients; disabled users retained for returns; invalid selection cleared; existing form preserved for same user');

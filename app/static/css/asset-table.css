@@ -1,0 +1,65 @@
+#section-computers, #tab_panel_assets, .asset-table-card { min-width: 0; }
+.asset-table-card { overflow: hidden; }
+#assetTableViewport {
+    width: 100%;
+    height: calc(100dvh - 345px);
+    min-height: 240px;
+    max-height: none;
+    overflow: auto;
+    scrollbar-gutter: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong, #bac6d6) var(--bg-secondary, #eef2f7);
+}
+#assetTableViewport::-webkit-scrollbar { width: 8px; height: 8px; }
+#assetTable { width: 100%; min-width: 1280px; table-layout: fixed; }
+#assetTable th, #assetTable td {
+    padding: 10px 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+}
+#assetTable th { font-size: 10px; letter-spacing: .025em; overflow-wrap: normal; }
+#assetTable td { font-size: 12px; }
+#assetTable .asset-user-cell { padding-left: 12px; padding-right: 12px; white-space: nowrap; }
+#assetTable .asset-user-cell code {
+    display: inline-block;
+    max-width: 100%;
+    vertical-align: middle;
+    white-space: nowrap;
+    overflow-wrap: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#assetTable .asset-status-cell .badge { white-space: nowrap; }
+#assetTable td:first-child, #assetTable th:first-child { padding: 8px 4px; text-align: center; }
+#assetTable input[type="checkbox"] { margin: 0; }
+#assetTable .warranty-date { white-space: nowrap; font-size: 11px; }
+#assetTable .warranty-badge { white-space: normal; font-size: 10px; padding: 3px 5px; }
+#assetTable .badge { white-space: normal; font-size: 10px; padding: 4px 6px; }
+#assetTable .asset-action-cell {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    background: var(--card, #fff);
+    box-shadow: none;
+}
+#assetTable thead .asset-action-cell { top: 0; z-index: 4; background: var(--bg-secondary, #eef0f4); }
+#assetTable tbody tr:hover .asset-action-cell { background: var(--bg-secondary, #eef0f4); }
+#assetTable .asset-actions { display: grid; grid-template-columns: repeat(4, 32px); gap: 4px; }
+#assetTable .asset-actions .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    min-width: 0;
+    padding: 0;
+    border-radius: 8px;
+    line-height: 1;
+}
+#assetTable .asset-actions svg { width: 17px; height: 17px; flex: none; }
+@media print {
+    #assetTableViewport { height: auto !important; min-height: 0; overflow: visible; }
+    #assetTable { min-width: 0; }
+    #assetTable .asset-action-cell { position: static; box-shadow: none; }
+}

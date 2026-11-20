@@ -12,8 +12,12 @@ from datetime import timedelta, datetime
 from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response, session, has_request_context
 from ldap3 import Server, Connection, ALL
 import socket
+from inventory import SCHEMA as INVENTORY_SCHEMA, register_inventory, parse_asset_date, validate_dates
+from asset_qr import register_asset_qr
+from date_formats import display_date, display_time
 
 app = Flask(__name__)
+app.jinja_env.filters['date_display'] = display_date
 DEMO_MODE = os.environ.get('DEMO_MODE', '').lower() in ('1', 'true', 'yes')
 
 # ── Secret key: PHẢI lấy từ biến môi trường, không hard-code trong source ──
@@ -27,9 +31,9 @@ if not os.environ.get('FLASK_SECRET_KEY'):
           "ngẫu nhiên tạm thời, mọi session sẽ bị đăng xuất khi restart app. Nên set "
           "FLASK_SECRET_KEY cố định (vd: python -c \"import secrets; print(secrets.token_hex(32))\").")
 
-# ── Tự động đăng xuất sau 5 phút không thao tác (đề phòng quên logout / tắt web) ──
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=5)
-app.config['SESSION_REFRESH_EACH_REQUEST'] = True  # mỗi request mới sẽ "làm mới" thời hạn 5 phút
+# ── Tự động đăng xuất sau 15 phút không thao tác (đề phòng quên logout / tắt web) ──
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=15)
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True  # mỗi request mới sẽ "làm mới" thời hạn 15 phút
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'       # giảm rủi ro CSRF cho cookie session
 # Nếu web đã chạy sau HTTPS, nên bật thêm dòng dưới để trình duyệt chỉ gửi cookie qua kết nối mã hoá:
 # app.config['SESSION_COOKIE_SECURE'] = True
@@ -396,6 +400,16 @@ def init_db():
         finally:
             cur.close()
             conn.close()
+
+    # Inventory schema changes are atomic and failures trigger startup retry.
+    conn = get_db_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            for sql in INVENTORY_SCHEMA:
+                cur.execute(sql)
+    finally:
+        conn.close()
+
 
 def write_log(actor: str, action: str, target: str = None, detail: str = None):
     """Ghi một dòng audit log. Không raise exception để không làm hỏng luồng chính."""
@@ -1209,6 +1223,9 @@ def login():
                     import threading
                     threading.Thread(target=get_ad_users_and_groups, args=(cfg, True), daemon=True).start()
 
+                    asset_return = session.pop('asset_return_to', '')
+                    if asset_return.startswith('/assets/') and asset_return[len('/assets/'):].isdigit():
+                        return redirect(asset_return)
                     return redirect(url_for('index'))
                 else:
                     error = "Tài khoản hoặc mật khẩu AD không chính xác."
@@ -1812,7 +1829,7 @@ def export_licenses_csv():
     cw = csv.writer(si)
     cw.writerow(['User tài khoản', 'Mã Bản Quyền', 'Số Lượng', 'Thời Gian Gắn'])
     for r in rows:
-        cw.writerow([r[0], r[1], r[2], r[3].strftime('%Y-%m-%d %H:%M:%S') if r[3] else ''])
+        cw.writerow([r[0], r[1], r[2], r[3].strftime('%d/%m/%Y %H:%M:%S') if r[3] else ''])
 
     export_scope = ', '.join(selected_keys) if selected_keys else 'ALL'
     write_log(session['user'], 'EXPORT_CSV', detail=f'Exported license assignment CSV; apps={export_scope}')
@@ -2184,6 +2201,7 @@ def export_allocation_history_xlsx():
                 excel_safe(row[1]), row[2], row[3], excel_safe(row[4] or ''),
                 excel_safe(row[5] or ''), row[6], excel_safe(row[7]), excel_safe(row[8] or '')
             ])
+            ws.cell(ws.max_row, 1).number_format = 'dd/mm/yyyy hh:mm:ss'
         ws.freeze_panes = 'A2'
         ws.auto_filter.ref = ws.dimensions
         widths = [20, 20, 16, 14, 24, 32, 12, 20, 48]
@@ -2216,7 +2234,7 @@ def export_audit_csv():
     cw = csv.writer(si)
     cw.writerow(['ID', 'Thời Gian', 'Người Thực Hiện', 'Hành Động', 'Đối Tượng', 'Chi Tiết', 'IP'])
     for r in rows:
-        cw.writerow([r[0], r[1].strftime('%Y-%m-%d %H:%M:%S') if r[1] else '', r[2], r[3], r[4], r[5], r[6]])
+        cw.writerow([r[0], r[1].strftime('%d/%m/%Y %H:%M:%S') if r[1] else '', r[2], r[3], r[4], r[5], r[6]])
 
     output = make_response(si.getvalue().encode('utf-8-sig'))
     output.headers["Content-Disposition"] = "attachment; filename=audit_log.csv"
@@ -2300,7 +2318,7 @@ def api_save_handover_date():
         cur.execute("SELECT handover_date FROM handover_records WHERE username=%s", (username,))
         row = cur.fetchone()
         write_log(session['user'], 'SAVE_HANDOVER_DATE', target=username,
-                  detail=f"handover_date={row[0].isoformat() if row else date_str}")
+                  detail=f"handover_date={display_date(row[0] if row else date_str)}")
         return jsonify({"status": "success", "handover_date": row[0].isoformat() if row else date_str})
     except Exception as e:
         conn.rollback()
@@ -2331,7 +2349,7 @@ def api_save_handover_revoke_date():
             return jsonify({"status": "error", "message": "Chưa ghi nhận ngày bàn giao cho nhân viên này"})
         conn.commit()
         write_log(session['user'], 'SAVE_HANDOVER_REVOKE_DATE', target=username,
-                  detail=f"revoke_date={date_str}")
+                  detail=f"revoke_date={display_date(date_str)}")
         return jsonify({"status": "success", "revoke_date": date_str})
     except Exception as e:
         conn.rollback()
@@ -2734,7 +2752,7 @@ def api_get_computers():
                    c.cpu, c.ram, c.ssd, c.hdd, c.bitlocker, c.status, c.notes, c.updated_at,
                    COALESCE(string_agg(uc.sam_account_name, ', ' ORDER BY uc.sam_account_name), '') AS assigned_users,
                    c.bitlocker_c, c.bitlocker_d, c.bitlocker_e,
-                   c.bitlocker_c_id, c.bitlocker_d_id, c.bitlocker_e_id
+                   c.bitlocker_c_id, c.bitlocker_d_id, c.bitlocker_e_id, c.purchase_date, c.warranty_expiry_date
             FROM computers c
             LEFT JOIN user_computers uc ON uc.computer_id = c.id
             GROUP BY c.id
@@ -2743,11 +2761,13 @@ def api_get_computers():
         rows = cur.fetchall()
         cols = ['id','asset_code','device_type','computer_name','location','brand','model',
                 'cpu','ram','ssd','hdd','bitlocker','status','notes','updated_at','assigned_user',
-                'bitlocker_c','bitlocker_d','bitlocker_e','bitlocker_c_id','bitlocker_d_id','bitlocker_e_id']
+                'bitlocker_c','bitlocker_d','bitlocker_e','bitlocker_c_id','bitlocker_d_id','bitlocker_e_id','purchase_date','warranty_expiry_date']
         result = []
         for r in rows:
             d = dict(zip(cols, r))
             if d['updated_at']: d['updated_at'] = d['updated_at'].strftime('%d/%m/%Y')
+            for key in ('purchase_date', 'warranty_expiry_date'):
+                d[key] = d[key].isoformat() if d[key] else ''
             result.append(d)
         return jsonify({"computers": result})
     finally: cur.close(); conn.close()
@@ -2757,6 +2777,12 @@ def api_get_computers():
 @admin_required
 def api_create_computer():
     data = request.get_json()
+    try:
+        purchase = parse_asset_date(data.get('purchase_date'))
+        expiry = parse_asset_date(data.get('warranty_expiry_date'))
+        validate_dates(purchase, expiry)
+    except ValueError as exc:
+        return jsonify(status='error', message=str(exc)), 400
     asset_code = (data.get('asset_code') or '').strip()
     conn = get_db_connection(); cur = conn.cursor()
     try:
@@ -2768,12 +2794,12 @@ def api_create_computer():
 
         cur.execute("""
             INSERT INTO computers
-              (asset_code,device_type,computer_name,location,brand,model,cpu,ram,ssd,hdd,bitlocker,status,notes,updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
+              (asset_code,device_type,computer_name,location,brand,model,cpu,ram,ssd,hdd,bitlocker,status,notes,purchase_date,warranty_expiry_date,updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id
         """, (asset_code, data.get('device_type',''), data.get('computer_name',''),
               data.get('location',''), data.get('brand',''), data.get('model',''),
               data.get('cpu',''), data.get('ram',''), data.get('ssd',''), data.get('hdd',''),
-              data.get('bitlocker',''), data.get('status','in_use'), data.get('notes','')))
+              data.get('bitlocker',''), data.get('status','in_use'), data.get('notes',''), purchase, expiry))
         new_id = cur.fetchone()[0]
 
         # Nếu có gán user ngay lúc tạo, ghi vào user_computers (nguồn chân lý duy nhất)
@@ -2799,6 +2825,12 @@ def api_create_computer():
 @admin_required
 def api_update_computer(cid):
     data = request.get_json()
+    try:
+        purchase = parse_asset_date(data.get('purchase_date'))
+        expiry = parse_asset_date(data.get('warranty_expiry_date'))
+        validate_dates(purchase, expiry)
+    except ValueError as exc:
+        return jsonify(status='error', message=str(exc)), 400
     asset_code = (data.get('asset_code') or '').strip()
     conn = get_db_connection(); cur = conn.cursor()
     try:
@@ -2808,8 +2840,16 @@ def api_update_computer(cid):
             if dup:
                 return jsonify({"status":"error","message":f"Mã tài sản \"{asset_code}\" đã tồn tại (máy: {dup[0]}). Vui lòng nhập mã khác."})
 
+        cur.execute('SELECT purchase_date,warranty_expiry_date FROM computers WHERE id=%s', (cid,))
+        dates = cur.fetchone()
+        if not dates:
+            return jsonify(status='error', message='Không tìm thấy máy'), 404
+        purchase = purchase if 'purchase_date' in data else dates[0]
+        expiry = expiry if 'warranty_expiry_date' in data else dates[1]
+        validate_dates(purchase, expiry)
         # Lấy dữ liệu cũ để so sánh, phục vụ ghi log chi tiết những gì đã thay đổi
         field_labels = {
+            'purchase_date':'Ngày mua','warranty_expiry_date':'Ngày hết hạn bảo hành',
             'asset_code':'Mã TS','device_type':'Thiết bị','computer_name':'Tên','location':'Vị trí',
             'brand':'Hãng','model':'Model','cpu':'CPU','ram':'RAM','ssd':'SSD','hdd':'HDD',
             'bitlocker':'Bitlocker','status':'Trạng thái','notes':'Ghi chú'
@@ -2848,13 +2888,17 @@ def api_update_computer(cid):
                     (assigned_user, cid)
                 )
 
+        cur.execute('UPDATE computers SET purchase_date=%s,warranty_expiry_date=%s WHERE id=%s',
+                    (purchase, expiry, cid))
+        new_values['purchase_date'] = purchase
+        new_values['warranty_expiry_date'] = expiry
         conn.commit()
 
         # Chỉ liệt kê những trường thực sự thay đổi, cho log dễ đọc
         changes = []
         for key, label in field_labels.items():
-            old_v = (old_values.get(key) or '').strip()
-            new_v = (new_values.get(key) or '').strip()
+            old_v = str(display_date(old_values.get(key)) if key.endswith('_date') else old_values.get(key) or '').strip()
+            new_v = str(display_date(new_values.get(key)) if key.endswith('_date') else new_values.get(key) or '').strip()
             if old_v != new_v:
                 changes.append(f"{label}: '{old_v or '—'}' → '{new_v or '—'}'")
         if 'assigned_user' in data:
@@ -3017,7 +3061,7 @@ def export_computers_csv():
         SELECT c.asset_code,c.device_type,c.computer_name,c.location,c.brand,c.model,c.cpu,c.ram,c.ssd,c.hdd,c.bitlocker,c.status,
                COALESCE(string_agg(uc.sam_account_name, ', ' ORDER BY uc.sam_account_name), '') AS assigned_user,
                c.notes,
-               c.bitlocker_c_id, c.bitlocker_c, c.bitlocker_d_id, c.bitlocker_d, c.bitlocker_e_id, c.bitlocker_e
+               c.bitlocker_c_id, c.bitlocker_c, c.bitlocker_d_id, c.bitlocker_d, c.bitlocker_e_id, c.bitlocker_e, c.purchase_date, c.warranty_expiry_date
         FROM computers c
         LEFT JOIN user_computers uc ON uc.computer_id = c.id
         GROUP BY c.id ORDER BY c.id
@@ -3025,10 +3069,12 @@ def export_computers_csv():
     rows = cur.fetchall(); cur.close(); conn.close()
     si = io.StringIO(); cw = csv.writer(si)
     cw.writerow(['Mã Tài Sản','Thiết Bị','Tên','Vị Trí','Hãng','Model','CPU','RAM','SSD','HDD','Bitlocker','Trạng Thái','User','Ghi Chú',
-                 'Identifier Disk C','Recovery Key Disk C','Identifier Disk D','Recovery Key Disk D','Identifier Disk E','Recovery Key Disk E'])
+                 'Identifier Disk C','Recovery Key Disk C','Identifier Disk D','Recovery Key Disk D','Identifier Disk E','Recovery Key Disk E','Ngày Mua','Ngày Hết Hạn Bảo Hành'])
     smap = {'in_use':'Đang sử dụng','storage':'Lưu kho'}
     for r in rows:
-        row = list(r); row[11] = smap.get(row[11], row[11]); cw.writerow(row)
+        row = list(r); row[11] = smap.get(row[11], row[11])
+        row[-2] = display_date(row[-2]); row[-1] = display_date(row[-1])
+        cw.writerow(row)
     write_log(session['user'], 'EXPORT_CSV', detail='Exported computers CSV')
     csv_bytes = si.getvalue().encode('utf-8-sig')  # thêm BOM thật để Excel nhận đúng UTF-8
     output = make_response(csv_bytes)
@@ -3116,6 +3162,16 @@ def api_import_computers():
                 if asset_code:
                     existing_id_by_code[asset_code] = new_id  # để các dòng SAU trong cùng file (nếu trùng mã) sẽ UPDATE thay vì insert trùng
 
+            date_columns = {'Ngày Mua': 'purchase_date', 'Ngày Hết Hạn Bảo Hành': 'warranty_expiry_date'}
+            if any(k in row for k in date_columns):
+                cur.execute('SELECT purchase_date,warranty_expiry_date FROM computers WHERE id=%s', (new_id,))
+                previous_dates = cur.fetchone()
+                purchase = parse_asset_date(row.get('Ngày Mua')) if 'Ngày Mua' in row else previous_dates[0]
+                expiry = parse_asset_date(row.get('Ngày Hết Hạn Bảo Hành')) if 'Ngày Hết Hạn Bảo Hành' in row else previous_dates[1]
+                validate_dates(purchase, expiry)
+                cur.execute('UPDATE computers SET purchase_date=%s,warranty_expiry_date=%s WHERE id=%s',
+                            (purchase, expiry, new_id))
+
             # Cột User trong CSV có thể chứa nhiều user cách nhau dấu phẩy
             users_str = (row.get('User','') or '').strip()
             if users_str:
@@ -3176,6 +3232,14 @@ def api_assign_computer():
     computer_id = data.get('computer_id')
     if not username or not computer_id:
         return jsonify({"status":"error","message":"Thiếu username hoặc computer_id"})
+
+    users, _, ad_error = get_ad_users_and_groups(current_domain_cfg())
+    if ad_error:
+        return jsonify({'status':'error','message':'Không thể xác minh trạng thái user AD. Vui lòng thử lại.'}), 503
+    selected_user = next((u for u in users if (u.get('SamAccountName') or '').casefold() == str(username).strip().casefold()), None)
+    if not selected_user or not selected_user.get('Enabled'):
+        return jsonify({'status':'error','message':'Chỉ được gán thiết bị cho user đang Enabled.'}), 400
+    username = selected_user['SamAccountName']
 
     conn = get_db_connection(); cur = conn.cursor()
     try:
@@ -3334,6 +3398,9 @@ def api_revoke_license_direct():
         cur.close()
         conn.close()
     return jsonify({"status": "error", "message": "Thu hồi thất bại"})
+
+register_inventory(app, get_db_connection, login_required)
+register_asset_qr(app, get_db_connection, admin_required)
 
 # Chạy init_db() ở module level với retry — đảm bảo chạy được dù
 # PostgreSQL container chưa sẵn sàng ngay khi Flask khởi động.
